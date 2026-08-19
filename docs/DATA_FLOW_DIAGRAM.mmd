@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant User
+    participant UI as React Dashboard
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    participant C as TrueData Collector
+    participant TD as TrueData
+
+    C->>TD: Connect and authenticate
+    C->>TD: Subscribe symbols
+    TD-->>C: Heartbeat / trade messages
+    C->>C: Parse trade message
+    C->>DB: Store normalized tick
+
+    User->>UI: Open dashboard
+    UI->>API: GET /api/market/live
+    API->>DB: Query latest ticks
+    DB-->>API: Market data
+    API-->>UI: JSON response
+    UI-->>User: Display market data
+
+    UI->>API: GET /api/market/status
+    API->>DB: Read latest tick timestamp
+    DB-->>API: Timestamp
+    API-->>UI: LIVE / STALE / CLOSED
