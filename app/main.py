@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.config.settings import settings
-from app.config.symbols import SYMBOLS
+from app.api.market import router as market_router
 
 
 app = FastAPI(
@@ -22,7 +22,12 @@ async def health_check():
 
 @app.get("/api/symbols")
 async def get_symbols():
+    from app.config.symbols import SYMBOLS
+
     return {
         "count": len(SYMBOLS),
         "symbols": SYMBOLS,
     }
+
+
+app.include_router(market_router)
