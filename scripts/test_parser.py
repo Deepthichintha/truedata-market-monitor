@@ -30,5 +30,5 @@ result = parse_trade(message)
 
 print("Symbol ID:", result["symbol_id"])
 print("Timestamp:", result["timestamp"])
-print("Number of raw fields:", len(result["raw_data"]))
-print("Raw values:", result["raw_data"])
+print("Number of raw fields:", len(result["raw_values"]))
+print("Raw values:", result["raw_values"])
