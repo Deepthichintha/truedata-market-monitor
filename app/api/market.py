@@ -1,10 +1,10 @@
 from datetime import datetime, time
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 
 from app.database.connection import SessionLocal
-from app.database.models import LiveTick, Symbol
+from app.database.models import HistoricalBar, LiveTick, Symbol
 
 
 router = APIRouter(
@@ -235,11 +235,23 @@ def get_market_data(symbol: str):
 def get_market_history(
     symbol: str,
     limit: int = Query(
-        default=20,
+        default=200,
         ge=1,
         le=500,
     ),
 ):
+    """
+    Return completed EOD historical market data.
+
+    Data source:
+        historical_bars PostgreSQL table
+
+    Timeframe:
+        1D / EOD
+
+    The newest completed trading day is returned first.
+    """
+
     db = SessionLocal()
 
     try:
@@ -261,17 +273,22 @@ def get_market_history(
         if not db_symbol.truedata_symbol_id:
             raise HTTPException(
                 status_code=404,
-                detail=f"No TrueData mapping found for '{symbol.upper()}'",
+                detail=(
+                    f"No TrueData mapping found for "
+                    f"'{symbol.upper()}'"
+                ),
             )
 
-        ticks = (
-            db.query(LiveTick)
+        bars = (
+            db.query(HistoricalBar)
             .filter(
-                LiveTick.symbol_id == db_symbol.truedata_symbol_id
+                HistoricalBar.symbol_id
+                == db_symbol.truedata_symbol_id,
+                HistoricalBar.timeframe == "1D",
             )
             .order_by(
-                desc(LiveTick.timestamp),
-                desc(LiveTick.id),
+                desc(HistoricalBar.timestamp),
+                desc(HistoricalBar.id),
             )
             .limit(limit)
             .all()
@@ -281,13 +298,19 @@ def get_market_history(
             "symbol": db_symbol.symbol,
             "exchange": db_symbol.exchange,
             "truedata_symbol_id": db_symbol.truedata_symbol_id,
-            "count": len(ticks),
+            "timeframe": "1D",
+            "count": len(bars),
             "data": [
-                tick_to_dict(
-                    tick,
-                    db_symbol,
-                )
-                for tick in ticks
+                {
+                    "timestamp": bar.timestamp,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "oi": bar.oi,
+                }
+                for bar in bars
             ],
         }
 

@@ -3,6 +3,7 @@ import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+
 function formatNumber(value) {
   if (value === null || value === undefined) {
     return "-";
@@ -12,6 +13,7 @@ function formatNumber(value) {
     maximumFractionDigits: 2,
   });
 }
+
 
 function formatVolume(value) {
   if (value === null || value === undefined) {
@@ -35,6 +37,7 @@ function formatVolume(value) {
   return number.toString();
 }
 
+
 function formatTimestamp(value) {
   if (!value) {
     return "-";
@@ -42,6 +45,7 @@ function formatTimestamp(value) {
 
   return value.replace("T", " ");
 }
+
 
 function getStatusLabel(status, error) {
   if (error) {
@@ -63,6 +67,7 @@ function getStatusLabel(status, error) {
   return "Checking...";
 }
 
+
 function getStatusClass(status, error) {
   if (error) {
     return "offline";
@@ -83,6 +88,7 @@ function getStatusClass(status, error) {
   return "checking";
 }
 
+
 function App() {
   const [marketData, setMarketData] = useState([]);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
@@ -94,11 +100,10 @@ function App() {
 
   const [error, setError] = useState("");
 
-  const [lastRefresh, setLastRefresh] = useState(null);
-
   const [marketStatus, setMarketStatus] = useState("CHECKING");
   const [latestTick, setLatestTick] = useState(null);
   const [tickAge, setTickAge] = useState(null);
+
 
   async function loadMarketData() {
     try {
@@ -115,7 +120,6 @@ function App() {
       const result = await response.json();
 
       setMarketData(result.data || []);
-      setLastRefresh(new Date());
       setError("");
     } catch (err) {
       console.error(err);
@@ -127,6 +131,7 @@ function App() {
       setLoading(false);
     }
   }
+
 
   async function loadMarketStatus() {
     try {
@@ -160,6 +165,7 @@ function App() {
     }
   }
 
+
   async function refreshDashboard() {
     await Promise.all([
       loadMarketData(),
@@ -167,13 +173,14 @@ function App() {
     ]);
   }
 
+
   async function loadHistory(symbol) {
     setSelectedSymbol(symbol);
     setHistoryLoading(true);
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/market/${symbol}/history?limit=10`
+        `${API_BASE_URL}/api/market/${symbol}/history?limit=200`
       );
 
       if (!response.ok) {
@@ -193,6 +200,7 @@ function App() {
     }
   }
 
+
   useEffect(() => {
     refreshDashboard();
 
@@ -202,6 +210,7 @@ function App() {
 
     return () => clearInterval(interval);
   }, []);
+
 
   const filteredData = useMemo(() => {
     const searchText = search.trim().toUpperCase();
@@ -215,22 +224,22 @@ function App() {
     );
   }, [marketData, search]);
 
-  const selectedData = marketData.find(
-    (item) => item.symbol === selectedSymbol
-  );
 
   const statusLabel = getStatusLabel(
     marketStatus,
     error
   );
 
+
   const statusClass = getStatusClass(
     marketStatus,
     error
   );
 
+
   return (
     <div className="app">
+
       <header className="topbar">
         <div>
           <h1>TrueData Market Monitor</h1>
@@ -259,14 +268,18 @@ function App() {
         </div>
       </header>
 
+
       {error && (
         <div className="error-banner">
           ⚠ {error}
         </div>
       )}
 
+
       <main className="container">
+
         <section className="summary-grid">
+
           <div className="summary-card">
             <span className="summary-label">
               Subscribed Symbols
@@ -280,6 +293,7 @@ function App() {
               Active market symbols
             </small>
           </div>
+
 
           <div className="summary-card">
             <span className="summary-label">
@@ -301,6 +315,7 @@ function App() {
             </small>
           </div>
 
+
           <div className="summary-card">
             <span className="summary-label">
               Dashboard Refresh
@@ -315,6 +330,7 @@ function App() {
             </small>
           </div>
 
+
           <div className="summary-card">
             <span className="summary-label">
               Exchange
@@ -328,9 +344,12 @@ function App() {
               Equity market
             </small>
           </div>
+
         </section>
 
+
         <section className="toolbar">
+
           <div>
             <h2>Live Market</h2>
 
@@ -340,7 +359,9 @@ function App() {
             </p>
           </div>
 
+
           <div className="toolbar-actions">
+
             <input
               type="text"
               placeholder="Search symbol..."
@@ -353,17 +374,26 @@ function App() {
             <button onClick={refreshDashboard}>
               Refresh
             </button>
+
           </div>
+
         </section>
 
+
         {loading ? (
+
           <div className="loading">
             Loading market data...
           </div>
+
         ) : (
+
           <section className="table-card">
+
             <div className="table-wrapper">
+
               <table>
+
                 <thead>
                   <tr>
                     <th>Symbol</th>
@@ -380,8 +410,11 @@ function App() {
                   </tr>
                 </thead>
 
+
                 <tbody>
+
                   {filteredData.map((item) => (
+
                     <tr
                       key={item.symbol}
                       onClick={() =>
@@ -393,7 +426,9 @@ function App() {
                           : ""
                       }
                     >
+
                       <td className="symbol-cell">
+
                         <strong>
                           {item.symbol}
                         </strong>
@@ -401,15 +436,19 @@ function App() {
                         <small>
                           {item.truedata_symbol_id}
                         </small>
+
                       </td>
+
 
                       <td className="ltp">
                         ₹{formatNumber(item.ltp)}
                       </td>
 
+
                       <td>
                         ₹{formatNumber(item.atp)}
                       </td>
+
 
                       <td>
                         {formatVolume(
@@ -417,17 +456,21 @@ function App() {
                         )}
                       </td>
 
+
                       <td>
                         ₹{formatNumber(item.open)}
                       </td>
+
 
                       <td className="high">
                         ₹{formatNumber(item.high)}
                       </td>
 
+
                       <td className="low">
                         ₹{formatNumber(item.low)}
                       </td>
+
 
                       <td>
                         ₹{formatNumber(
@@ -435,11 +478,13 @@ function App() {
                         )}
                       </td>
 
+
                       <td>
                         {item.bid !== null
                           ? `₹${formatNumber(item.bid)}`
                           : "-"}
                       </td>
+
 
                       <td>
                         {item.ask !== null
@@ -447,37 +492,53 @@ function App() {
                           : "-"}
                       </td>
 
+
                       <td>
                         {formatTimestamp(
                           item.timestamp
                         )}
                       </td>
+
                     </tr>
+
                   ))}
+
                 </tbody>
+
               </table>
+
 
               {filteredData.length === 0 && (
                 <div className="empty">
                   No market data found.
                 </div>
               )}
+
             </div>
+
           </section>
+
         )}
 
+
         {selectedSymbol && (
+
           <section className="history-section">
+
             <div className="history-header">
+
               <div>
+
                 <h2>
-                  {selectedSymbol} History
+                  {selectedSymbol} Historical Data
                 </h2>
 
                 <p>
-                  Latest 10 recorded market ticks
+                  Last 6 months of completed EOD market data
                 </p>
+
               </div>
+
 
               <button
                 className="close-button"
@@ -488,148 +549,117 @@ function App() {
               >
                 Close
               </button>
+
             </div>
 
-            {selectedData && (
-              <div className="detail-grid">
-                <div>
-                  <span>LTP</span>
-                  <strong>
-                    ₹{formatNumber(
-                      selectedData.ltp
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>LTQ</span>
-                  <strong>
-                    {formatNumber(
-                      selectedData.ltq
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>ATP</span>
-                  <strong>
-                    ₹{formatNumber(
-                      selectedData.atp
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Volume</span>
-                  <strong>
-                    {formatNumber(
-                      selectedData.total_volume
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Bid</span>
-                  <strong>
-                    ₹{formatNumber(
-                      selectedData.bid
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Ask</span>
-                  <strong>
-                    ₹{formatNumber(
-                      selectedData.ask
-                    )}
-                  </strong>
-                </div>
-              </div>
-            )}
 
             {historyLoading ? (
+
               <div className="loading">
-                Loading history...
+                Loading historical data...
               </div>
+
             ) : (
+
               <div className="history-table-wrapper">
+
                 <table>
+
                   <thead>
+
                     <tr>
-                      <th>Timestamp</th>
-                      <th>LTP</th>
-                      <th>LTQ</th>
-                      <th>ATP</th>
+                      <th>Date</th>
+                      <th>Open</th>
+                      <th>High</th>
+                      <th>Low</th>
+                      <th>Close</th>
                       <th>Volume</th>
-                      <th>Bid</th>
-                      <th>Ask</th>
+                      <th>OI</th>
                     </tr>
+
                   </thead>
 
+
                   <tbody>
+
                     {history.map(
                       (item, index) => (
+
                         <tr
                           key={`${item.timestamp}-${index}`}
                         >
+
                           <td>
                             {formatTimestamp(
                               item.timestamp
                             )}
                           </td>
 
-                          <td>
-                            ₹{formatNumber(
-                              item.ltp
-                            )}
-                          </td>
 
                           <td>
-                            {formatNumber(
-                              item.ltq
-                            )}
+                            ₹{formatNumber(item.open)}
                           </td>
 
-                          <td>
-                            ₹{formatNumber(
-                              item.atp
-                            )}
+
+                          <td className="high">
+                            ₹{formatNumber(item.high)}
                           </td>
 
-                          <td>
-                            {formatNumber(
-                              item.total_volume
-                            )}
+
+                          <td className="low">
+                            ₹{formatNumber(item.low)}
                           </td>
 
-                          <td>
-                            ₹{formatNumber(
-                              item.bid
-                            )}
-                          </td>
 
                           <td>
-                            ₹{formatNumber(
-                              item.ask
-                            )}
+                            ₹{formatNumber(item.close)}
                           </td>
+
+
+                          <td>
+                            {formatVolume(item.volume)}
+                          </td>
+
+
+                          <td>
+                            {formatNumber(item.oi)}
+                          </td>
+
                         </tr>
+
                       )
                     )}
+
                   </tbody>
+
                 </table>
+
+
+                {history.length === 0 && (
+                  <div className="empty">
+                    No historical data available for{" "}
+                    {selectedSymbol}.
+                  </div>
+                )}
+
               </div>
+
             )}
+
           </section>
+
         )}
+
       </main>
+
 
       <footer>
         TrueData Market Monitor • Local Development
       </footer>
+
     </div>
   );
 }
+
 
 export default App;
