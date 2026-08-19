@@ -1,0 +1,16 @@
+flowchart LR
+    USER[User / Browser]
+    TD[TrueData WebSocket]
+    COL[Python TrueData Collector]
+    PARSER[TrueData Trade Parser]
+    DB[(PostgreSQL)]
+    API[FastAPI REST API]
+    UI[React + Vite Dashboard]
+
+    USER --> UI
+    UI --> API
+    TD --> COL
+    COL --> PARSER
+    PARSER --> DB
+    DB --> API
+    API --> UI
