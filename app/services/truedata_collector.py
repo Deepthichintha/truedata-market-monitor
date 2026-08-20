@@ -5,6 +5,7 @@ import websocket
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
+from app.config.bse_symbols import BSE_SYMBOLS
 from app.database.connection import SessionLocal
 from app.database.models import LiveTick, Symbol
 from app.services.truedata_parser import parse_trade
@@ -13,41 +14,79 @@ load_dotenv()
 
 TRUEDATA_WS_URL = "wss://push.truedata.in:8086"
 
+MAX_SYMBOLS = 50
 
-def get_active_symbols(db: Session) -> list[str]:
-    """
-    Load active symbols from PostgreSQL.
 
-    TrueData subscription uses the human-readable
-    exchange symbols, not the internal database IDs.
+def get_active_symbols(
+    db: Session,
+    include_bse: bool = False,
+) -> list[str]:
     """
+    Load symbols for the TrueData subscription.
+
+    Normal mode:
+        Existing NSE symbols only.
+
+    BSE test mode:
+        Configured BSE symbols only.
+
+    This keeps the existing NSE subscription unchanged.
+    """
+
+    if include_bse:
+        rows = (
+            db.query(Symbol)
+            .filter(
+                Symbol.is_active.is_(True),
+                Symbol.exchange == "BSE",
+                Symbol.truedata_symbol_id.isnot(None),
+            )
+            .order_by(Symbol.id)
+            .all()
+        )
+
+        bse_symbols = [
+            row.symbol
+            for row in rows
+            if row.symbol in BSE_SYMBOLS
+        ]
+
+        return bse_symbols[:10]
+
     rows = (
         db.query(Symbol)
         .filter(
             Symbol.is_active.is_(True),
+            Symbol.exchange == "NSE",
             Symbol.truedata_symbol_id.isnot(None),
         )
         .order_by(Symbol.id)
         .all()
     )
 
-    return [row.symbol for row in rows]
+    nse_symbols = [
+        row.symbol
+        for row in rows
+    ]
+
+    return nse_symbols[:MAX_SYMBOLS]
 
 
-def save_tick(db: Session, trade_data: dict) -> None:
+def save_tick(
+    db: Session,
+    trade_data: dict,
+) -> None:
     """
     Save a parsed TrueData trade into PostgreSQL.
 
-    The latest known Bid/Ask values are carried forward
-    from the previous tick for the same TrueData symbol.
-
-    This prevents a new trade from temporarily clearing
-    Bid/Ask values in the dashboard.
+    Existing Bid/Ask values are carried forward from
+    the previous tick for the same TrueData symbol.
     """
 
-    symbol_id = str(trade_data["symbol_id"])
+    symbol_id = str(
+        trade_data["symbol_id"]
+    )
 
-    # Find the latest existing tick for this symbol.
     previous_tick = (
         db.query(LiveTick)
         .filter(
@@ -74,8 +113,6 @@ def save_tick(db: Session, trade_data: dict) -> None:
         oi=trade_data["oi"],
         prev_oi=trade_data["prev_oi"],
         turnover=trade_data["turnover"],
-
-        # Carry forward the latest known Bid/Ask.
         bid=(
             previous_tick.bid
             if previous_tick
@@ -102,14 +139,17 @@ def save_tick(db: Session, trade_data: dict) -> None:
     db.commit()
 
 
-def update_bidask(db: Session, bidask: list) -> None:
+def update_bidask(
+    db: Session,
+    bidask: list,
+) -> None:
     """
-    Persist a TrueData Bid/Ask update onto the latest LiveTick.
+    Process the normal TrueData Bid/Ask message.
 
-    Confirmed TrueData Bid/Ask format:
+    Format:
 
         [
-            truedata_symbol_id,
+            symbol_id,
             timestamp,
             bid,
             bid_qty,
@@ -118,37 +158,46 @@ def update_bidask(db: Session, bidask: list) -> None:
         ]
     """
 
-    if not isinstance(bidask, list) or len(bidask) < 6:
+    if (
+        not isinstance(bidask, list)
+        or len(bidask) < 6
+    ):
         print(
-            f"Ignoring malformed Bid/Ask update: "
+            "Ignoring malformed Bid/Ask update: "
             f"{bidask}"
         )
         return
 
-    truedata_symbol_id = str(bidask[0])
+    symbol_id = str(
+        bidask[0]
+    )
+
     timestamp = bidask[1]
 
     try:
         bid = float(bidask[2])
-        bid_qty = int(float(bidask[3]))
+        bid_qty = int(
+            float(bidask[3])
+        )
         ask = float(bidask[4])
-        ask_qty = int(float(bidask[5]))
+        ask_qty = int(
+            float(bidask[5])
+        )
 
-    except (TypeError, ValueError) as exc:
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
         print(
-            f"Ignoring invalid Bid/Ask update "
+            "Ignoring invalid Bid/Ask update "
             f"{bidask}: {exc}"
         )
         return
 
-    # LiveTick.symbol_id is String(50).
-    # It stores the TrueData symbol ID.
-    # Therefore we compare against the TrueData ID,
-    # not Symbol.id.
     latest_tick = (
         db.query(LiveTick)
         .filter(
-            LiveTick.symbol_id == truedata_symbol_id
+            LiveTick.symbol_id == symbol_id
         )
         .order_by(
             LiveTick.timestamp.desc(),
@@ -159,8 +208,8 @@ def update_bidask(db: Session, bidask: list) -> None:
 
     if latest_tick is None:
         print(
-            "No LiveTick found for TrueData symbol: "
-            f"{truedata_symbol_id}"
+            "No LiveTick found for TrueData "
+            f"symbol: {symbol_id}"
         )
         return
 
@@ -173,7 +222,158 @@ def update_bidask(db: Session, bidask: list) -> None:
 
     print(
         "Saved Bid/Ask | "
-        f"TrueData ID: {truedata_symbol_id} | "
+        f"TrueData ID: {symbol_id} | "
+        f"Timestamp: {timestamp} | "
+        f"Bid: {bid} ({bid_qty}) | "
+        f"Ask: {ask} ({ask_qty})"
+    )
+
+
+def parse_bidask_l2(
+    bidask_l2: list,
+) -> tuple[float, int, float, int] | None:
+    """
+    Parse a TrueData bidaskL2 message.
+
+    Observed structure:
+
+        [
+            symbol_id,
+            timestamp,
+            level,
+            bid_price,
+            bid_qty,
+            level,
+            ask_price,
+            ask_qty,
+            ...
+        ]
+
+    The first level contains the best available
+    bid and ask values in the observed payload.
+
+    Returns:
+
+        bid,
+        bid_qty,
+        ask,
+        ask_qty
+    """
+
+    if (
+        not isinstance(bidask_l2, list)
+        or len(bidask_l2) < 8
+    ):
+        return None
+
+    try:
+        bid = float(
+            bidask_l2[3]
+        )
+
+        bid_qty = int(
+            float(bidask_l2[4])
+        )
+
+        ask = float(
+            bidask_l2[6]
+        )
+
+        ask_qty = int(
+            float(bidask_l2[7])
+        )
+
+    except (
+        TypeError,
+        ValueError,
+        IndexError,
+    ):
+        return None
+
+    if bid <= 0 or ask <= 0:
+        return None
+
+    if bid_qty < 0 or ask_qty < 0:
+        return None
+
+    return (
+        bid,
+        bid_qty,
+        ask,
+        ask_qty,
+    )
+
+
+def update_bidask_l2(
+    db: Session,
+    bidask_l2: list,
+) -> None:
+    """
+    Process a TrueData Level-2 Bid/Ask message.
+
+    The best bid and best ask from the observed
+    TrueData L2 payload are persisted onto the
+    latest LiveTick.
+    """
+
+    if (
+        not isinstance(bidask_l2, list)
+        or len(bidask_l2) < 8
+    ):
+        print(
+            "Ignoring malformed Bid/Ask L2 update: "
+            f"{bidask_l2}"
+        )
+        return
+
+    symbol_id = str(
+        bidask_l2[0]
+    )
+
+    timestamp = bidask_l2[1]
+
+    parsed = parse_bidask_l2(
+        bidask_l2
+    )
+
+    if parsed is None:
+        print(
+            "Could not parse Bid/Ask L2 "
+            f"for TrueData ID: {symbol_id}"
+        )
+        return
+
+    bid, bid_qty, ask, ask_qty = parsed
+
+    latest_tick = (
+        db.query(LiveTick)
+        .filter(
+            LiveTick.symbol_id == symbol_id
+        )
+        .order_by(
+            LiveTick.timestamp.desc(),
+            LiveTick.id.desc(),
+        )
+        .first()
+    )
+
+    if latest_tick is None:
+        print(
+            "No LiveTick found for TrueData "
+            f"symbol: {symbol_id}"
+        )
+        return
+
+    latest_tick.bid = bid
+    latest_tick.bid_qty = bid_qty
+    latest_tick.ask = ask
+    latest_tick.ask_qty = ask_qty
+
+    db.commit()
+
+    print(
+        "Saved Bid/Ask L2 | "
+        f"TrueData ID: {symbol_id} | "
         f"Timestamp: {timestamp} | "
         f"Bid: {bid} ({bid_qty}) | "
         f"Ask: {ask} ({ask_qty})"
@@ -181,52 +381,116 @@ def update_bidask(db: Session, bidask: list) -> None:
 
 
 def run_collector() -> None:
-    """Start the TrueData WebSocket collector."""
+    """
+    Start the TrueData WebSocket collector.
 
-    username = os.getenv("TRUEDATA_USERNAME")
-    password = os.getenv("TRUEDATA_PASSWORD")
+    Default:
+
+        50 NSE symbols
+
+    BSE test mode:
+
+        10 BSE symbols
+
+    Enable BSE test mode:
+
+        export TRUEDATA_BSE_TEST=true
+    """
+
+    username = os.getenv(
+        "TRUEDATA_USERNAME"
+    )
+
+    password = os.getenv(
+        "TRUEDATA_PASSWORD"
+    )
 
     if not username or not password:
         raise RuntimeError(
-            "TRUEDATA_USERNAME and TRUEDATA_PASSWORD "
-            "must be configured in .env"
+            "TRUEDATA_USERNAME and "
+            "TRUEDATA_PASSWORD must be "
+            "configured in .env"
         )
+
+    include_bse = (
+        os.getenv(
+            "TRUEDATA_BSE_TEST",
+            "false",
+        ).lower()
+        == "true"
+    )
 
     db = SessionLocal()
     ws = None
 
     try:
-        symbols = get_active_symbols(db)
+        symbols = get_active_symbols(
+            db,
+            include_bse=include_bse,
+        )
 
         if not symbols:
+            if include_bse:
+                raise RuntimeError(
+                    "No active BSE symbols found "
+                    "for BSE test mode."
+                )
+
             raise RuntimeError(
-                "No active TrueData symbols found in database."
+                "No active NSE symbols found "
+                "in database."
             )
 
         print("=" * 70)
-        print("TrueData Market Data Collector")
+        print(
+            "TrueData Market Data Collector"
+        )
         print("=" * 70)
-        print(f"WebSocket: {TRUEDATA_WS_URL}")
-        print(f"Symbols loaded from database: {len(symbols)}")
+        print(
+            f"WebSocket: {TRUEDATA_WS_URL}"
+        )
+
+        if include_bse:
+            print(
+                "Mode: BSE TEST"
+            )
+        else:
+            print(
+                "Mode: NSE NORMAL"
+            )
+
+        print(
+            f"Symbols loaded: {len(symbols)}"
+        )
+
         print("=" * 70)
 
         print("Symbols:")
-        print(", ".join(symbols))
+        print(
+            ", ".join(symbols)
+        )
+
         print()
 
         url = (
             f"{TRUEDATA_WS_URL}"
-            f"?user={username}&password={password}"
+            f"?user={username}"
+            f"&password={password}"
         )
 
-        print("Connecting to TrueData...")
+        print(
+            "Connecting to TrueData..."
+        )
 
         ws = websocket.create_connection(
             url,
             timeout=30,
         )
 
-        print("Connected to TrueData.")
+        print(
+            "Connected to TrueData."
+        )
+
         print()
 
         subscription = {
@@ -235,12 +499,20 @@ def run_collector() -> None:
         }
 
         print(
-            f"Subscribing to {len(symbols)} symbols..."
+            f"Subscribing to "
+            f"{len(symbols)} symbols..."
         )
 
-        ws.send(json.dumps(subscription))
+        ws.send(
+            json.dumps(
+                subscription
+            )
+        )
 
-        print("Subscription request sent.")
+        print(
+            "Subscription request sent."
+        )
+
         print()
 
         while True:
@@ -250,52 +522,88 @@ def run_collector() -> None:
                 continue
 
             try:
-                data = json.loads(message)
+                data = json.loads(
+                    message
+                )
+
             except json.JSONDecodeError:
                 print(
-                    "Received non-JSON message:",
+                    "Received non-JSON "
+                    "message:",
                     message,
                 )
                 continue
 
+            # -------------------------------------------------
             # Heartbeat
-            if data.get("message") == "HeartBeat":
+            # -------------------------------------------------
+
+            if (
+                data.get("message")
+                == "HeartBeat"
+            ):
                 print(
-                    f"Heartbeat: "
+                    "Heartbeat: "
                     f"{data.get('timestamp')}"
                 )
                 continue
 
+            # -------------------------------------------------
             # Subscription confirmation
-            if data.get("message") == "symbols added":
-                print("Subscription confirmed.")
+            # -------------------------------------------------
+
+            if (
+                data.get("message")
+                == "symbols added"
+            ):
                 print(
-                    f"Symbols added: "
+                    "Subscription confirmed."
+                )
+
+                print(
+                    "Symbols added: "
                     f"{data.get('symbolsadded')}"
                 )
+
                 print(
-                    f"Total subscribed: "
+                    "Total subscribed: "
                     f"{data.get('totalsymbolsubscribed')}"
                 )
+
                 continue
 
+            # -------------------------------------------------
             # Trade message
+            # -------------------------------------------------
+
             if "trade" in data:
                 try:
-                    trade_data = parse_trade(data)
-                    save_tick(db, trade_data)
+                    trade_data = parse_trade(
+                        data
+                    )
+
+                    save_tick(
+                        db,
+                        trade_data,
+                    )
 
                     print(
                         "Saved tick | "
-                        f"TrueData ID: {trade_data['symbol_id']} | "
-                        f"Timestamp: {trade_data['timestamp']} | "
-                        f"LTP: {trade_data['ltp']} | "
-                        f"LTQ: {trade_data['ltq']} | "
-                        f"Volume: {trade_data['total_volume']}"
+                        f"TrueData ID: "
+                        f"{trade_data['symbol_id']} | "
+                        f"Timestamp: "
+                        f"{trade_data['timestamp']} | "
+                        f"LTP: "
+                        f"{trade_data['ltp']} | "
+                        f"LTQ: "
+                        f"{trade_data['ltq']} | "
+                        f"Volume: "
+                        f"{trade_data['total_volume']}"
                     )
 
                 except Exception as exc:
                     db.rollback()
+
                     print(
                         "Failed to process trade:",
                         exc,
@@ -303,7 +611,10 @@ def run_collector() -> None:
 
                 continue
 
-            # Dedicated Bid/Ask message
+            # -------------------------------------------------
+            # Normal Bid/Ask message
+            # -------------------------------------------------
+
             if "bidask" in data:
                 try:
                     update_bidask(
@@ -313,6 +624,7 @@ def run_collector() -> None:
 
                 except Exception as exc:
                     db.rollback()
+
                     print(
                         "Failed to process "
                         "Bid/Ask update:",
@@ -321,8 +633,35 @@ def run_collector() -> None:
 
                 continue
 
+            # -------------------------------------------------
+            # Level-2 Bid/Ask message
+            # -------------------------------------------------
+
+            if "bidaskL2" in data:
+                try:
+                    update_bidask_l2(
+                        db,
+                        data["bidaskL2"],
+                    )
+
+                except Exception as exc:
+                    db.rollback()
+
+                    print(
+                        "Failed to process "
+                        "Bid/Ask L2 update:",
+                        exc,
+                    )
+
+                continue
+
+            # -------------------------------------------------
             # Other TrueData messages
-            print("TrueData message:")
+            # -------------------------------------------------
+
+            print(
+                "TrueData message:"
+            )
 
             try:
                 print(
@@ -331,6 +670,7 @@ def run_collector() -> None:
                         indent=2,
                     )
                 )
+
             except Exception:
                 print(data)
 

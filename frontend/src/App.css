@@ -356,3 +356,43 @@ footer {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.exchange-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.exchange-filters button {
+  cursor: pointer;
+}
+
+.exchange-filters button.active {
+  font-weight: 600;
+}
+
+.exchange-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.exchange-badge.nse {
+  background: #e8f5e9;
+}
+
+.exchange-badge.bse {
+  background: #e3f2fd;
+}
+
+@media (max-width: 900px) {
+  .toolbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .exchange-filters {
+    flex-wrap: wrap;
+  }
+}

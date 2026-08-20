@@ -64,6 +64,10 @@ function getStatusLabel(status, error) {
     return "Market Closed";
   }
 
+  if (status === "PRE_MARKET") {
+    return "Pre-Market";
+  }
+
   return "Checking...";
 }
 
@@ -85,6 +89,10 @@ function getStatusClass(status, error) {
     return "closed";
   }
 
+  if (status === "PRE_MARKET") {
+    return "checking";
+  }
+
   return "checking";
 }
 
@@ -94,6 +102,7 @@ function App() {
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [history, setHistory] = useState([]);
   const [search, setSearch] = useState("");
+  const [exchangeFilter, setExchangeFilter] = useState("ALL");
 
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -212,17 +221,38 @@ function App() {
   }, []);
 
 
+  const exchangeCounts = useMemo(() => {
+    return {
+      all: marketData.length,
+      nse: marketData.filter(
+        (item) => item.exchange === "NSE"
+      ).length,
+      bse: marketData.filter(
+        (item) => item.exchange === "BSE"
+      ).length,
+    };
+  }, [marketData]);
+
+
   const filteredData = useMemo(() => {
     const searchText = search.trim().toUpperCase();
 
-    if (!searchText) {
-      return marketData;
-    }
+    return marketData.filter((item) => {
+      const matchesExchange =
+        exchangeFilter === "ALL" ||
+        item.exchange === exchangeFilter;
 
-    return marketData.filter((item) =>
-      item.symbol?.toUpperCase().includes(searchText)
-    );
-  }, [marketData, search]);
+      const matchesSearch =
+        !searchText ||
+        item.symbol?.toUpperCase().includes(searchText);
+
+      return matchesExchange && matchesSearch;
+    });
+  }, [
+    marketData,
+    search,
+    exchangeFilter,
+  ]);
 
 
   const statusLabel = getStatusLabel(
@@ -243,7 +273,10 @@ function App() {
       <header className="topbar">
         <div>
           <h1>TrueData Market Monitor</h1>
-          <p>Real-time NSE market monitoring</p>
+
+          <p>
+            Real-time NSE &amp; BSE market monitoring
+          </p>
         </div>
 
         <div className="status-area">
@@ -282,15 +315,15 @@ function App() {
 
           <div className="summary-card">
             <span className="summary-label">
-              Subscribed Symbols
+              Active Symbols
             </span>
 
             <strong>
-              {marketData.length}
+              {exchangeCounts.all}
             </strong>
 
             <small>
-              Active market symbols
+              NSE + BSE market symbols
             </small>
           </div>
 
@@ -307,11 +340,13 @@ function App() {
                   ? "STALE"
                   : marketStatus === "CLOSED"
                     ? "CLOSED"
-                    : "WAITING"}
+                    : marketStatus === "PRE_MARKET"
+                      ? "PRE-MARKET"
+                      : "WAITING"}
             </strong>
 
             <small>
-              NSE equity market
+              NSE &amp; BSE market
             </small>
           </div>
 
@@ -333,15 +368,16 @@ function App() {
 
           <div className="summary-card">
             <span className="summary-label">
-              Exchange
+              Exchanges
             </span>
 
             <strong>
-              NSE
+              NSE + BSE
             </strong>
 
             <small>
-              Equity market
+              {exchangeCounts.nse} NSE •{" "}
+              {exchangeCounts.bse} BSE
             </small>
           </div>
 
@@ -362,6 +398,48 @@ function App() {
 
           <div className="toolbar-actions">
 
+            <div className="exchange-filters">
+              <button
+                className={
+                  exchangeFilter === "ALL"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setExchangeFilter("ALL")
+                }
+              >
+                ALL ({exchangeCounts.all})
+              </button>
+
+              <button
+                className={
+                  exchangeFilter === "NSE"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setExchangeFilter("NSE")
+                }
+              >
+                NSE ({exchangeCounts.nse})
+              </button>
+
+              <button
+                className={
+                  exchangeFilter === "BSE"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setExchangeFilter("BSE")
+                }
+              >
+                BSE ({exchangeCounts.bse})
+              </button>
+            </div>
+
+
             <input
               type="text"
               placeholder="Search symbol..."
@@ -370,6 +448,7 @@ function App() {
                 setSearch(event.target.value)
               }
             />
+
 
             <button onClick={refreshDashboard}>
               Refresh
@@ -397,6 +476,7 @@ function App() {
                 <thead>
                   <tr>
                     <th>Symbol</th>
+                    <th>Exchange</th>
                     <th>LTP</th>
                     <th>ATP</th>
                     <th>Volume</th>
@@ -416,7 +496,7 @@ function App() {
                   {filteredData.map((item) => (
 
                     <tr
-                      key={item.symbol}
+                      key={`${item.exchange}-${item.symbol}`}
                       onClick={() =>
                         loadHistory(item.symbol)
                       }
@@ -437,6 +517,17 @@ function App() {
                           {item.truedata_symbol_id}
                         </small>
 
+                      </td>
+
+
+                      <td>
+                        <span
+                          className={`exchange-badge ${
+                            item.exchange?.toLowerCase()
+                          }`}
+                        >
+                          {item.exchange || "-"}
+                        </span>
                       </td>
 
 
