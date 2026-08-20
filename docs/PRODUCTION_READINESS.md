@@ -1,16 +1,35 @@
 # Production Readiness Checklist
 
+## Current Status
+
+The application is a validated local proof of concept, not yet a production deployment.
+
+Current validated functionality:
+
+- [x] 50 NSE live symbols
+- [x] 10 BSE live symbols
+- [x] TrueData WebSocket subscription
+- [x] Trade ingestion
+- [x] Bid/Ask persistence
+- [x] BSE `bidaskL2` handling
+- [x] PostgreSQL persistence
+- [x] FastAPI live-data APIs
+- [x] IST market-session logic
+- [x] 08:45 pre-market session
+- [x] React NSE/BSE dashboard
+- [x] ALL/NSE/BSE frontend filtering
+
 ## Application
 
-- [ ] Add production authentication
-- [ ] Add authorization
+- [ ] Production authentication
+- [ ] Authorization
 - [ ] Restrict CORS
-- [ ] Add rate limiting
-- [ ] Add request validation
-- [ ] Add database migrations
-- [ ] Add automated CI tests
-- [ ] Add structured logging
-- [ ] Configure production environment variables
+- [ ] Rate limiting
+- [ ] Request validation review
+- [ ] Database migrations
+- [ ] Automated CI tests
+- [ ] Structured logging
+- [ ] Production environment configuration
 
 ## TrueData Collector
 
@@ -22,16 +41,19 @@
 - [ ] Ingestion metrics
 - [ ] Failure alerts
 
+The reconnect item was intentionally deferred during the current development phase.
+
 ## PostgreSQL
 
 - [ ] Production database configuration
-- [ ] Connection pooling
+- [ ] Connection pooling review
 - [ ] Automated backups
 - [ ] Restore testing
-- [ ] Retention policy
+- [ ] Tick retention policy
 - [ ] Partitioning evaluation
 - [ ] Query optimization
 - [ ] Storage monitoring
+- [ ] Historical-data ingestion strategy for BSE
 
 ## Security
 
@@ -39,8 +61,8 @@
 - [ ] HTTPS
 - [ ] Database least privilege
 - [ ] Credential rotation
-- [ ] No secrets in Git history
-- [ ] No secrets in logs
+- [ ] Verify no secrets in Git history
+- [ ] Verify no secrets in logs
 - [ ] API authentication
 - [ ] API authorization
 
@@ -54,6 +76,7 @@
 - [ ] Database health
 - [ ] Storage usage
 - [ ] Stale-feed alerts
+- [ ] Exchange-specific ingestion metrics
 
 ## Deployment
 
@@ -74,3 +97,13 @@
 - [ ] Recovery Time Objective (RTO)
 - [ ] Recovery Point Objective (RPO)
 - [ ] Credential recovery process
+
+## Recommended Next Phase
+
+1. Automatic reconnect with exponential backoff.
+2. Subscription recovery after reconnect.
+3. Collector health endpoint/heartbeat monitoring.
+4. Structured logging and metrics.
+5. Historical BSE data ingestion and validation.
+6. Production database backup/retention strategy.
+7. CI-based automated testing.
