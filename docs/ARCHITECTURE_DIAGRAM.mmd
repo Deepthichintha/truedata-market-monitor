@@ -1,16 +1,26 @@
 flowchart LR
     USER[User / Browser]
-    TD[TrueData WebSocket]
+
+    subgraph TD[TrueData]
+        NSE[NSE Equity Feed]
+        BSE[BSE Equity Feed]
+    end
+
     COL[Python TrueData Collector]
-    PARSER[TrueData Trade Parser]
+    PARSER[Trade / Quote Processing]
     DB[(PostgreSQL)]
     API[FastAPI REST API]
     UI[React + Vite Dashboard]
 
     USER --> UI
     UI --> API
-    TD --> COL
+
+    NSE --> COL
+    BSE --> COL
+
     COL --> PARSER
     PARSER --> DB
     DB --> API
     API --> UI
+
+    UI -->|ALL / NSE / BSE filters| USER
