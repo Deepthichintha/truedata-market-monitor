@@ -1,28 +1,30 @@
 # TrueData Market Monitor
 
-TrueData Market Monitor is a real-time NSE market monitoring application that receives live market data from TrueData, processes and stores the data in PostgreSQL, exposes REST APIs through FastAPI, and displays the market information through a React/Vite dashboard.
+TrueData Market Monitor is a real-time market-monitoring proof of concept that receives live NSE and BSE equity data from TrueData, normalizes and stores the data in PostgreSQL, exposes REST APIs through FastAPI, and displays the live market through a React/Vite dashboard.
 
-The current implementation is a local proof of concept designed to validate the complete market-data flow before production or cloud deployment.
+The current implementation has been validated end-to-end with **50 NSE symbols + 10 BSE symbols = 60 active symbols**.
+
+> **Current status:** Functional local POC. Automatic WebSocket reconnect/recovery is intentionally deferred to the next production-hardening phase.
 
 ---
 
-## 1. Project Overview
+## 1. Current Scope
 
-The application provides:
-
-- Real-time NSE market data ingestion
-- TrueData WebSocket integration
-- Subscription to configured market symbols
-- Trade message parsing and validation
-- PostgreSQL persistence
-- Live market-data APIs
-- Historical EOD market-data APIs
-- Market/feed status detection
-- React/Vite monitoring dashboard
-- Automatic dashboard refresh
-- Symbol search
-- Historical data viewing
-- Health monitoring
+| Capability | Status |
+|---|---|
+| TrueData WebSocket | ✅ Validated |
+| NSE live ingestion | ✅ 50 symbols |
+| NSE Bid/Ask | ✅ Validated |
+| BSE live ingestion | ✅ 10 symbols |
+| BSE Bid/Ask L2 | ✅ Validated |
+| PostgreSQL persistence | ✅ Validated |
+| FastAPI live APIs | ✅ Validated |
+| IST market session | ✅ Validated |
+| 08:45 pre-market handling | ✅ Validated |
+| React/Vite dashboard | ✅ Validated |
+| ALL/NSE/BSE filters | ✅ Validated |
+| Automatic reconnect | ⏸️ Deferred |
+| Production deployment | ⏸️ Not yet implemented |
 
 ---
 
@@ -32,36 +34,27 @@ The application provides:
                          +----------------------+
                          |       TrueData       |
                          |   WebSocket Feed     |
-                         |    NSE Market Data   |
+                         |  NSE + BSE Equity    |
                          +----------+-----------+
-                                    |
                                     |
                                     v
                          +----------------------+
                          |  TrueData Collector  |
                          |       Python         |
-                         |                      |
-                         | - Connect            |
-                         | - Authenticate       |
-                         | - Subscribe symbols  |
-                         | - Receive ticks      |
                          +----------+-----------+
                                     |
                                     v
                          +----------------------+
-                         |    Trade Parser      |
-                         |                      |
-                         | Validate payload     |
-                         | Normalize fields     |
+                         | Trade / Quote Parser |
+                         | BidAsk / BidAskL2    |
                          +----------+-----------+
                                     |
                                     v
                          +----------------------+
                          |      PostgreSQL      |
-                         |                      |
-                         |  symbols             |
-                         |  live_ticks          |
-                         |  historical_bars     |
+                         | symbols              |
+                         | live_ticks           |
+                         | historical_bars      |
                          +----------+-----------+
                                     |
                                     v
@@ -76,71 +69,109 @@ The application provides:
                          |    React + Vite      |
                          |      Dashboard       |
                          |       :5173          |
-                         +----------+-----------+
-                                    |
-                                    v
-                              Web Browser
+                         +----------------------+
+```
+
+Mermaid sources:
+
+- `docs/ARCHITECTURE_DIAGRAM.mmd`
+- `docs/DATA_FLOW_DIAGRAM.mmd`
+
+Detailed architecture: `docs/ARCHITECTURE.md`
+
+---
+
+## 3. Data Flow
+
+```text
+TrueData WebSocket
+        |
+        | trade / bidask / bidaskL2 / heartbeat
+        v
+TrueData Collector
+        |
+        +----> Trade Parser
+        +----> Quote Processing
+        |
+        v
+PostgreSQL live_ticks
+        |
+        v
+FastAPI
+        |
+        +----> /api/market/live
+        +----> /api/market/status
+        +----> /api/market/{symbol}
+        +----> /api/market/{symbol}/history
+        |
+        v
+React/Vite Dashboard
+        |
+        +----> ALL / NSE / BSE
+        +----> Search
+        +----> Live table
 ```
 
 ---
 
-## 3. Technology Stack
+## 4. Technology Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | React |
-| Frontend Build Tool | Vite |
+| Frontend Build | Vite |
 | Backend | Python |
-| API Framework | FastAPI |
+| API | FastAPI |
 | ORM | SQLAlchemy |
 | Database | PostgreSQL |
-| Market Data Provider | TrueData |
-| Market Data Protocol | WebSocket |
-| HTTP Client | HTTPX |
-| Configuration | Pydantic Settings |
-| Environment Configuration | `.env` |
+| Market Data | TrueData |
+| Market Protocol | WebSocket |
+| Configuration | Pydantic Settings + `.env` |
 | API Documentation | OpenAPI / Swagger |
 | Package Management | pip / npm |
 
 ---
 
-## 4. Repository Structure
+## 5. Repository Structure
 
 ```text
 truedata-market-monitor/
 |
 +-- app/
-|   |
 |   +-- api/
 |   |   +-- market.py
-|   |
 |   +-- config/
 |   |   +-- settings.py
 |   |   +-- symbols.py
-|   |
+|   |   +-- bse_symbols.py
 |   +-- database/
 |   |   +-- connection.py
 |   |   +-- init_db.py
 |   |   +-- models.py
 |   |   +-- seed.py
-|   |
 |   +-- services/
-|   |   +-- smarttheta.py
-|   |   +-- truedata_collector.py
-|   |   +-- truedata_parser.py
-|   |
+|       +-- smarttheta.py
+|       +-- truedata_collector.py
+|       +-- truedata_parser.py
 |   +-- main.py
-|
-+-- data/
 |
 +-- frontend/
 |   +-- src/
-|
-+-- scripts/
-|
-+-- tests/
+|       +-- App.jsx
+|       +-- App.css
 |
 +-- docs/
+|   +-- API.md
+|   +-- ARCHITECTURE.md
+|   +-- ARCHITECTURE_DIAGRAM.mmd
+|   +-- DATA_FLOW_DIAGRAM.mmd
+|   +-- DATA_MODEL.md
+|   +-- DOCUMENTATION_INDEX.md
+|   +-- OPERATIONS.md
+|   +-- PRODUCTION_READINESS.md
+|   +-- SECURITY.md
+|   +-- TESTING.md
+|   +-- STOCK_MARKET_TERMINOLOGY.md
 |
 +-- .env.example
 +-- .gitignore
@@ -150,9 +181,54 @@ truedata-market-monitor/
 
 ---
 
-## 5. TrueData Integration
+## 6. Exchange Support
 
-The application receives real-time market data from the TrueData WebSocket service.
+### NSE
+
+Configured in:
+
+```text
+app/config/symbols.py
+```
+
+Current validated set:
+
+```text
+50 symbols
+```
+
+### BSE
+
+Configured in:
+
+```text
+app/config/bse_symbols.py
+```
+
+Current validated set:
+
+```text
+10 symbols
+```
+
+| Symbol | TrueData ID |
+|---|---:|
+| AARTIIND_BSE | 410001512 |
+| ADANIPORTS_BSE | 410002671 |
+| AETHER_BSE | 410004487 |
+| APOLLOHOSP_BSE | 410000697 |
+| ASHIANA_BSE | 410001474 |
+| ATUL_BSE | 410000078 |
+| AUBANK_BSE | 410003594 |
+| BAJAJ-AUTO_BSE | 410002707 |
+| CARERATING_BSE | 410002923 |
+| CCL_BSE | 410001265 |
+
+The BSE symbols were selected from the current SmartTheta application and validated through TrueData subscription.
+
+---
+
+## 7. TrueData Integration
 
 WebSocket endpoint:
 
@@ -160,108 +236,71 @@ WebSocket endpoint:
 wss://push.truedata.in:8086
 ```
 
-The collector performs the following operations:
+Collector responsibilities:
 
-```text
-Read credentials
-       |
-       v
-Load active symbols
-       |
-       v
-Connect to TrueData
-       |
-       v
-Authenticate
-       |
-       v
-Subscribe to symbols
-       |
-       v
-Receive market messages
-       |
-       v
-Parse trade messages
-       |
-       v
-Store data in PostgreSQL
-```
+- Load credentials
+- Load active NSE/BSE symbols
+- Connect and authenticate
+- Subscribe symbols
+- Handle heartbeat messages
+- Handle subscription confirmations
+- Process trade messages
+- Process regular Bid/Ask messages
+- Process BSE `bidaskL2` messages
+- Persist live data
+- Handle processing/database errors
+- Close cleanly on shutdown
 
-The configured application has been validated with the required NSE symbol set.
-
----
-
-## 6. TrueData Collector
-
-File:
-
-```text
-app/services/truedata_collector.py
-```
-
-The collector is responsible for:
-
-- Reading TrueData credentials
-- Loading active symbols from PostgreSQL
-- Establishing the WebSocket connection
-- Subscribing to market symbols
-- Receiving heartbeat messages
-- Handling subscription confirmations
-- Receiving trade messages
-- Sending trade data to the parser
-- Saving parsed ticks to PostgreSQL
-- Handling errors
-- Closing the WebSocket connection cleanly
-
-The collector is designed as a separate long-running process.
-
-Start it with:
+Start the collector:
 
 ```bash
-python -m app.services.truedata_collector
+python -u -m app.services.truedata_collector
 ```
+
+The collector is a long-running process and should remain running while live data is required.
 
 ---
 
-## 7. TrueData Parser
+## 8. Bid/Ask Handling
 
-File:
+Trade messages create the base `live_ticks` record.
 
-```text
-app/services/truedata_parser.py
-```
+Regular Bid/Ask messages update the latest tick for the corresponding TrueData symbol.
 
-The parser converts the TrueData trade message into normalized application data.
+BSE `bidaskL2` messages are processed to extract the best bid/ask price and quantity and update the latest tick.
 
-The parser validates the expected trade message structure and converts fields such as:
-
-```text
-Symbol ID
-Timestamp
-LTP
-LTQ
-ATP
-Total Volume
-Open
-High
-Low
-Previous Close
-Open Interest
-Previous Open Interest
-Turnover
-Bid
-Bid Quantity
-Ask
-Ask Quantity
-```
-
-The parser also preserves the original values for traceability.
+If a quote arrives before the first trade, the collector logs that no base `LiveTick` exists yet and continues. Once the first trade arrives, subsequent quote updates can be persisted.
 
 ---
 
-## 8. Database
+## 9. Market Session
 
-The application uses PostgreSQL for persistence.
+The application explicitly uses:
+
+```text
+Asia/Kolkata
+```
+
+Session schedule:
+
+```text
+08:45 - PRE_MARKET
+09:15 - OPEN
+15:30 - CLOSED
+```
+
+During `OPEN`, feed status is:
+
+```text
+LIVE  -> latest tick is <= 60 seconds old
+STALE -> latest tick is > 60 seconds old
+```
+
+The explicit timezone prevents incorrect market status when the host server uses UTC or another timezone.
+
+---
+
+## 10. Database
 
 Primary tables:
 
@@ -271,95 +310,35 @@ live_ticks
 historical_bars
 ```
 
-The database connection is configured through:
+`symbols` contains the exchange mapping:
 
 ```text
-DATABASE_URL
+exchange = NSE
+exchange = BSE
 ```
 
-Example:
+`live_ticks` stores:
 
 ```text
-postgresql://postgres:<password>@localhost:5432/truedata_market_monitor
+LTP
+LTQ
+ATP
+Volume
+OHLC
+Previous Close
+OI
+Turnover
+Bid
+Bid Quantity
+Ask
+Ask Quantity
 ```
+
+See `docs/DATA_MODEL.md` for details.
 
 ---
 
-## 9. Database Tables
-
-### symbols
-
-Stores configured market symbols.
-
-Important fields:
-
-```text
-id
-symbol
-truedata_symbol_id
-exchange
-is_active
-created_at
-```
-
-### live_ticks
-
-Stores real-time market tick information.
-
-Important fields:
-
-```text
-id
-symbol_id
-timestamp
-ltp
-ltq
-atp
-total_volume
-open
-high
-low
-prev_close
-oi
-prev_oi
-turnover
-bid
-bid_qty
-ask
-ask_qty
-```
-
-### historical_bars
-
-Stores historical EOD market data.
-
-Important fields:
-
-```text
-id
-symbol_id
-timestamp
-timeframe
-open
-high
-low
-close
-volume
-oi
-created_at
-```
-
-The current application uses:
-
-```text
-timeframe = 1D
-```
-
----
-
-## 10. FastAPI Backend
-
-The FastAPI backend is the main REST API layer.
+## 11. FastAPI
 
 Application entry point:
 
@@ -373,23 +352,24 @@ Market API:
 app/api/market.py
 ```
 
-Local backend URL:
-
-```text
-http://127.0.0.1:8000
-```
-
-Start the backend:
+Start:
 
 ```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
+### API endpoints
 
-## 11. API Documentation
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Health |
+| GET | `/api/symbols` | Active symbols |
+| GET | `/api/market/status` | Session/feed status |
+| GET | `/api/market/live` | Latest NSE/BSE data |
+| GET | `/api/market/{symbol}` | One-symbol live data |
+| GET | `/api/market/{symbol}/history` | Historical EOD data |
 
-Swagger UI:
+Swagger:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -401,246 +381,9 @@ ReDoc:
 http://127.0.0.1:8000/redoc
 ```
 
-OpenAPI specification:
-
-```text
-http://127.0.0.1:8000/openapi.json
-```
-
 ---
 
-## 12. API Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/health` | Application health |
-| GET | `/api/symbols` | Return configured symbols |
-| GET | `/api/market/status` | Market/feed status |
-| GET | `/api/market/live` | Latest data for active symbols |
-| GET | `/api/market/{symbol}` | Latest data for one symbol |
-| GET | `/api/market/{symbol}/history` | Historical EOD data |
-
----
-
-## 13. Health API
-
-Endpoint:
-
-```text
-GET /health
-```
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-Example response:
-
-```json
-{
-  "status": "healthy",
-  "service": "TrueData Market Monitor",
-  "environment": "development"
-}
-```
-
----
-
-## 14. Symbols API
-
-Endpoint:
-
-```text
-GET /api/symbols
-```
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/api/symbols
-```
-
-Example response:
-
-```json
-{
-  "count": 50,
-  "symbols": [
-    "RELIANCE",
-    "TCS"
-  ]
-}
-```
-
-The actual response contains the configured symbols.
-
----
-
-## 15. Market Status API
-
-Endpoint:
-
-```text
-GET /api/market/status
-```
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/api/market/status
-```
-
-The API determines whether the market/feed is:
-
-```text
-LIVE
-STALE
-CLOSED
-```
-
-Current configured NSE market window:
-
-```text
-Market Open  : 09:15
-Market Close : 15:30
-```
-
-Stale-feed threshold:
-
-```text
-60 seconds
-```
-
-### LIVE
-
-The NSE market is open and a recent tick has been received.
-
-### STALE
-
-The market is open, but no recent tick has been received within the configured stale threshold.
-
-### CLOSED
-
-The application is outside the configured NSE market hours.
-
----
-
-## 16. Live Market API
-
-Endpoint:
-
-```text
-GET /api/market/live
-```
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/api/market/live
-```
-
-The API returns the latest available tick for each active symbol.
-
-Example:
-
-```json
-{
-  "count": 1,
-  "data": [
-    {
-      "symbol": "RELIANCE",
-      "exchange": "NSE",
-      "truedata_symbol_id": "123",
-      "timestamp": "2026-08-19T10:30:00",
-      "ltp": 1000.0,
-      "ltq": 10,
-      "atp": 995.0,
-      "total_volume": 100000,
-      "open": 990.0,
-      "high": 1010.0,
-      "low": 985.0,
-      "prev_close": 992.0,
-      "oi": 0,
-      "prev_oi": 0,
-      "turnover": 100000000,
-      "bid": 999.5,
-      "bid_qty": 100,
-      "ask": 1000.5,
-      "ask_qty": 120
-    }
-  ]
-}
-```
-
----
-
-## 17. Symbol Market API
-
-Endpoint:
-
-```text
-GET /api/market/{symbol}
-```
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/api/market/RELIANCE
-```
-
-The endpoint returns the most recent tick for the requested symbol.
-
-Possible `404` conditions:
-
-```text
-Symbol not found
-TrueData symbol mapping not found
-No market data available
-```
-
----
-
-## 18. Historical Market API
-
-Endpoint:
-
-```text
-GET /api/market/{symbol}/history
-```
-
-Example:
-
-```bash
-curl "http://127.0.0.1:8000/api/market/RELIANCE/history?limit=200"
-```
-
-Supported parameter:
-
-```text
-limit
-```
-
-Allowed range:
-
-```text
-1 - 500
-```
-
-Current timeframe:
-
-```text
-1D
-```
-
-The newest historical records are returned first.
-
----
-
-## 19. React/Vite Frontend
-
-The frontend provides the monitoring dashboard.
+## 12. Frontend
 
 Main application:
 
@@ -651,452 +394,232 @@ frontend/src/App.jsx
 The dashboard provides:
 
 - Live market table
+- NSE/BSE exchange labels
+- ALL / NSE / BSE filtering
 - Symbol search
-- LTP
-- ATP
+- LTP / ATP
 - Volume
-- Open
-- High
-- Low
+- OHLC
 - Previous close
-- Bid
-- Ask
-- Timestamp
+- Bid / Ask
 - Market status
-- Historical market data
+- Historical data selection
+- Automatic five-second refresh
 
----
-
-## 20. Dashboard Refresh
-
-The frontend automatically refreshes the market dashboard every:
-
-```text
-5 seconds
-```
-
-The frontend calls:
-
-```text
-/api/market/live
-/api/market/status
-```
-
-during the refresh cycle.
-
-Historical data is loaded when the user selects a symbol.
-
----
-
-## 21. Frontend Setup
-
-Go to the frontend directory:
+Frontend setup:
 
 ```bash
 cd frontend
-```
-
-Install dependencies:
-
-```bash
 npm install
-```
-
-Start development server:
-
-```bash
 npm run dev
 ```
 
-The frontend normally runs on:
+The local frontend normally runs on:
 
 ```text
 http://127.0.0.1:5173
 ```
 
+Expected exchange filters:
+
+```text
+ALL (60)
+NSE (50)
+BSE (10)
+```
+
 ---
 
-## 22. Environment Configuration
+## 13. Environment Configuration
 
 Create `.env` from `.env.example`.
 
-Example:
+Required values include:
 
 ```text
-APP_NAME=TrueData Market Monitor
-APP_ENV=development
-APP_HOST=127.0.0.1
-APP_PORT=8000
-
-TRUEDATA_USERNAME=<your_truedata_username>
-TRUEDATA_PASSWORD=<your_truedata_password>
-
-DATABASE_URL=postgresql://postgres:<password>@localhost:5432/truedata_market_monitor
-
-SMARTTHETA_BASE_URL=http://127.0.0.1:8000
+TRUEDATA_USERNAME=<your_username>
+TRUEDATA_PASSWORD=<your_password>
+DATABASE_URL=<your_postgresql_url>
 ```
 
-Never commit the real `.env` file.
+Never commit real credentials.
 
 ---
 
-## 23. Database Initialization
+## 14. Database Initialization
 
-Initialize database tables:
+Initialize tables:
 
 ```bash
 python -m app.database.init_db
 ```
 
-Seed configured symbols:
+Seed symbols:
 
 ```bash
 python -m app.database.seed
 ```
 
+Expected current active-symbol count:
+
+```text
+60
+```
+
 ---
 
-## 24. Recommended Startup Order
-
-Start services in this order:
+## 15. Recommended Startup Order
 
 ```text
 1. PostgreSQL
-       |
-       v
 2. Initialize database
-       |
-       v
 3. Seed symbols
-       |
-       v
 4. Start TrueData collector
-       |
-       v
 5. Start FastAPI
-       |
-       v
 6. Start React frontend
 ```
 
 ---
 
-## 25. Validation Commands
+## 16. Quick Validation
 
-### Backend health
+Health:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-### Symbols
+Status:
 
 ```bash
-curl http://127.0.0.1:8000/api/symbols
+curl -s http://127.0.0.1:8000/api/market/status
 ```
 
-### Market status
+Live data:
 
 ```bash
-curl http://127.0.0.1:8000/api/market/status
+curl -s http://127.0.0.1:8000/api/market/live
 ```
 
-### Live data
+BSE count:
 
 ```bash
-curl http://127.0.0.1:8000/api/market/live
+curl -s http://127.0.0.1:8000/api/market/live | python -c "import sys,json; d=json.load(sys.stdin); print('BSE records:',sum(1 for x in d['data'] if x['exchange']=='BSE'))"
 ```
 
-### Individual symbol
+Expected:
 
-```bash
-curl http://127.0.0.1:8000/api/market/RELIANCE
-```
-
-### Historical data
-
-```bash
-curl "http://127.0.0.1:8000/api/market/RELIANCE/history?limit=200"
+```text
+BSE records: 10
 ```
 
 ---
 
-## 26. End-to-End Data Flow
+## 17. Validation Summary
+
+The following end-to-end behavior has been validated:
 
 ```text
-TrueData
-   |
-   | WebSocket
-   v
-TrueData Collector
-   |
-   | Raw trade message
-   v
-Trade Parser
-   |
-   | Normalized data
-   v
+50 NSE symbols
+        |
+        v
+TrueData subscription
+        |
+        v
+Live trades + Bid/Ask
+        |
+        v
 PostgreSQL
-   |
-   | SQL queries
-   v
+        |
+        v
 FastAPI
-   |
-   | JSON
-   v
-React Dashboard
-   |
-   v
-User
+        |
+        v
+React dashboard
+```
+
+and:
+
+```text
+10 BSE symbols
+        |
+        v
+TrueData BSE subscription
+        |
+        v
+Live trades + bidaskL2
+        |
+        v
+PostgreSQL
+        |
+        v
+FastAPI
+        |
+        v
+React dashboard
+```
+
+Final validated dashboard scope:
+
+```text
+60 active symbols
+50 NSE
+10 BSE
 ```
 
 ---
 
-## 27. Error Handling
+## 18. Current Limitations
 
-The application handles several failure conditions.
+The current POC intentionally does not yet provide:
 
-### TrueData
-
-- Missing credentials
-- WebSocket connection failure
-- Invalid JSON
-- Invalid trade payload
-- Parsing failure
-
-### Database
-
-- Missing `DATABASE_URL`
-- Database connection failure
-- Database insert failure
-
-### API
-
-- Invalid symbol
-- Missing symbol mapping
-- Missing market data
-
-### Frontend
-
-- Backend unavailable
-- Failed API request
-- Empty market data
-- Historical data unavailable
-
----
-
-## 28. Security
-
-Sensitive values include:
-
-```text
-TRUEDATA_USERNAME
-TRUEDATA_PASSWORD
-DATABASE_URL
-```
-
-These must never be committed to GitHub.
-
-Use:
-
-```text
-.env
-```
-
-for local configuration and:
-
-```text
-.env.example
-```
-
-for documentation.
-
-Production should use a proper secret-management system.
-
----
-
-## 29. Production Target Architecture
-
-The current application is primarily a local proof of concept.
-
-A production deployment should separate the components:
-
-```text
-                    +----------------+
-                    |     Users      |
-                    +-------+--------+
-                            |
-                            v
-                    +----------------+
-                    | HTTPS / LB     |
-                    +-------+--------+
-                            |
-             +--------------+--------------+
-             |                             |
-             v                             v
-      +-------------+               +-------------+
-      | React       |               | FastAPI     |
-      | Frontend    |               | Backend     |
-      +-------------+               +------+------+
-                                            |
-                                            v
-                                     +-------------+
-                                     | PostgreSQL  |
-                                     +-------------+
-
-      TrueData
-          |
-          v
-   +-------------+
-   | Collector   |
-   | Worker      |
-   +------+------+
-          |
-          v
-     PostgreSQL
-```
-
----
-
-## 30. Production Recommendations
-
-Before production deployment, implement:
-
-- WebSocket reconnect
+- Automatic WebSocket reconnect
 - Exponential backoff
-- Collector health monitoring
-- Process supervision
-- Structured logging
-- Centralized logging
-- API authentication
-- API authorization
-- HTTPS
-- Restricted CORS
-- Rate limiting
-- Database migrations
-- Database backups
-- Tick retention
-- Database partitioning evaluation
-- Monitoring and alerting
-- Secret management
-- Automated CI/CD
-- Automated tests
+- Subscription recovery
+- Production process supervision
+- Production authentication/authorization
+- Production-grade monitoring/alerting
+- Production database backup/retention policy
+- BSE historical EOD ingestion validation
+
+These items are documented in `docs/PRODUCTION_READINESS.md`.
 
 ---
 
-## 31. Scalability Considerations
+## 19. Documentation
 
-The collector stores real-time ticks in PostgreSQL.
-
-At higher market-data volumes, evaluate:
+Start with:
 
 ```text
-Tick ingestion rate
-Database write throughput
-Storage growth
-Index size
-Query latency
-Connection pool size
-Retention requirements
+docs/DOCUMENTATION_INDEX.md
 ```
 
-Potential future architecture:
-
-```text
-TrueData
-    |
-    v
-Collector
-    |
-    v
-Message Queue / Stream
-    |
-    +----------------+
-    |                |
-    v                v
-Real-time        PostgreSQL
-Processing       / Historical
-    |
-    v
-FastAPI
-```
-
----
-
-## 32. Monitoring Recommendations
-
-Production monitoring should track:
-
-```text
-API availability
-API response time
-API error rate
-WebSocket connection status
-Collector process status
-Tick ingestion rate
-Database health
-Database storage
-Stale market feed
-Application CPU
-Application memory
-```
-
----
-
-## 33. Project Status
-
-Current project flow:
-
-```text
-TrueData
-    |
-    v
-WebSocket Collector
-    |
-    v
-Trade Parser
-    |
-    v
-PostgreSQL
-    |
-    v
-FastAPI
-    |
-    v
-React/Vite Dashboard
-```
-
-The current implementation provides the core proof-of-concept market-data pipeline.
-
-Production hardening should be completed before exposing the application publicly.
-
----
-
-## 34. Documentation
-
-Detailed documentation is available in:
-
-```text
-docs/
-```
-
-Recommended documents:
+Then review:
 
 ```text
 docs/ARCHITECTURE.md
 docs/API.md
 docs/DATA_MODEL.md
 docs/OPERATIONS.md
-docs/SECURITY.md
 docs/TESTING.md
+docs/SECURITY.md
 docs/PRODUCTION_READINESS.md
-docs/ARCHITECTURE_DIAGRAM.mmd
-docs/DATA_FLOW_DIAGRAM.mmd
-docs/DOCUMENTATION_INDEX.md
 ```
 
 ---
 
-## License
+## 20. Security
 
-Internal project / proof of concept.
+Never commit:
+
+```text
+TRUEDATA_USERNAME
+TRUEDATA_PASSWORD
+DATABASE_URL credentials
+API tokens
+Authorization headers
+```
+
+Use `.env` locally and `.env.example` as the safe template.
+
+See `docs/SECURITY.md`.
