@@ -21,7 +21,6 @@ def get_active_symbols(db: Session) -> list[str]:
     TrueData subscription uses the human-readable
     exchange symbols, not the internal TrueData numeric IDs.
     """
-
     rows = (
         db.query(Symbol)
         .filter(
@@ -31,15 +30,11 @@ def get_active_symbols(db: Session) -> list[str]:
         .order_by(Symbol.id)
         .all()
     )
-
     return [row.symbol for row in rows]
 
 
 def save_tick(db: Session, trade_data: dict) -> None:
-    """
-    Save a parsed TrueData trade into PostgreSQL.
-    """
-
+    """Save a parsed TrueData trade into PostgreSQL."""
     tick = LiveTick(
         symbol_id=trade_data["symbol_id"],
         timestamp=trade_data["timestamp"],
@@ -54,14 +49,72 @@ def save_tick(db: Session, trade_data: dict) -> None:
         oi=trade_data["oi"],
         prev_oi=trade_data["prev_oi"],
         turnover=trade_data["turnover"],
-        bid=trade_data["bid"],
-        bid_qty=trade_data["bid_qty"],
-        ask=trade_data["ask"],
-        ask_qty=trade_data["ask_qty"],
+        bid=None,
+        bid_qty=None,
+        ask=None,
+        ask_qty=None,
     )
-
     db.add(tick)
     db.commit()
+
+
+def update_bidask(db: Session, bidask: list) -> None:
+    """
+    Persist a TrueData bid/ask update onto the latest LiveTick for the symbol.
+
+    TrueData bidask format observed from the live feed:
+        [truedata_symbol_id, timestamp, bid, bid_qty, ask, ask_qty]
+    """
+    if len(bidask) < 6:
+        print(f"Ignoring malformed Bid/Ask update: {bidask}")
+        return
+
+    truedata_symbol_id = str(bidask[0])
+    timestamp = bidask[1]
+
+    try:
+        bid = float(bidask[2])
+        bid_qty = int(float(bidask[3]))
+        ask = float(bidask[4])
+        ask_qty = int(float(bidask[5]))
+    except (TypeError, ValueError) as exc:
+        print(f"Ignoring invalid Bid/Ask update {bidask}: {exc}")
+        return
+
+    symbol = (
+        db.query(Symbol)
+        .filter(Symbol.truedata_symbol_id == truedata_symbol_id)
+        .first()
+    )
+
+    if symbol is None:
+        print(f"Bid/Ask symbol not found: {truedata_symbol_id}")
+        return
+
+    latest_tick = (
+        db.query(LiveTick)
+        .filter(LiveTick.symbol_id == symbol.id)
+        .order_by(LiveTick.timestamp.desc(), LiveTick.id.desc())
+        .first()
+    )
+
+    if latest_tick is None:
+        print(f"No LiveTick found for Bid/Ask symbol: {truedata_symbol_id}")
+        return
+
+    latest_tick.bid = bid
+    latest_tick.bid_qty = bid_qty
+    latest_tick.ask = ask
+    latest_tick.ask_qty = ask_qty
+    db.commit()
+
+    print(
+        "Saved Bid/Ask | "
+        f"Symbol: {symbol.symbol} | "
+        f"Timestamp: {timestamp} | "
+        f"Bid: {bid} ({bid_qty}) | "
+        f"Ask: {ask} ({ask_qty})"
+    )
 
 
 def run_collector() -> None:
@@ -78,10 +131,6 @@ def run_collector() -> None:
     ws = None
 
     try:
-        # -------------------------------------------------
-        # Load symbols from PostgreSQL
-        # -------------------------------------------------
-
         symbols = get_active_symbols(db)
 
         if not symbols:
@@ -100,10 +149,6 @@ def run_collector() -> None:
         print(", ".join(symbols))
         print()
 
-        # -------------------------------------------------
-        # Connect to TrueData
-        # -------------------------------------------------
-
         url = (
             f"{TRUEDATA_WS_URL}"
             f"?user={username}&password={password}"
@@ -119,25 +164,15 @@ def run_collector() -> None:
         print("Connected to TrueData.")
         print()
 
-        # -------------------------------------------------
-        # Subscribe
-        # -------------------------------------------------
-
         subscription = {
             "method": "addsymbol",
             "symbols": symbols,
         }
 
         print(f"Subscribing to {len(symbols)} symbols...")
-
         ws.send(json.dumps(subscription))
-
         print("Subscription request sent.")
         print()
-
-        # -------------------------------------------------
-        # Receive data
-        # -------------------------------------------------
 
         while True:
             message = ws.recv()
@@ -147,156 +182,63 @@ def run_collector() -> None:
 
             try:
                 data = json.loads(message)
-
             except json.JSONDecodeError:
-                print(
-                    "Received non-JSON message:",
-                    message,
-                )
+                print("Received non-JSON message:", message)
                 continue
-
-            # -------------------------------------------------
-            # Heartbeat
-            # -------------------------------------------------
 
             if data.get("message") == "HeartBeat":
-                print(
-                    f"Heartbeat: {data.get('timestamp')}"
-                )
+                print(f"Heartbeat: {data.get('timestamp')}")
                 continue
-
-            # -------------------------------------------------
-            # Subscription confirmation
-            # -------------------------------------------------
 
             if data.get("message") == "symbols added":
-
-                print(
-                    "Subscription confirmed."
-                )
-
-                print(
-                    f"Symbols added: "
-                    f"{data.get('symbolsadded')}"
-                )
-
-                print(
-                    f"Total subscribed: "
-                    f"{data.get('totalsymbolsubscribed')}"
-                )
-
+                print("Subscription confirmed.")
+                print(f"Symbols added: {data.get('symbolsadded')}")
+                print(f"Total subscribed: {data.get('totalsymbolsubscribed')}")
                 continue
 
-            # -------------------------------------------------
-            # Trade message
-            # -------------------------------------------------
-
             if "trade" in data:
-
                 try:
                     trade_data = parse_trade(data)
-
-                    save_tick(
-                        db,
-                        trade_data,
-                    )
+                    save_tick(db, trade_data)
 
                     print(
                         "Saved tick | "
-                        f"TrueData ID: "
-                        f"{trade_data['symbol_id']} | "
-                        f"Timestamp: "
-                        f"{trade_data['timestamp']} | "
-                        f"LTP: "
-                        f"{trade_data['ltp']} | "
-                        f"LTQ: "
-                        f"{trade_data['ltq']} | "
-                        f"Volume: "
-                        f"{trade_data['total_volume']}"
+                        f"TrueData ID: {trade_data['symbol_id']} | "
+                        f"Timestamp: {trade_data['timestamp']} | "
+                        f"LTP: {trade_data['ltp']} | "
+                        f"LTQ: {trade_data['ltq']} | "
+                        f"Volume: {trade_data['total_volume']}"
                     )
-
                 except Exception as exc:
-
                     db.rollback()
-
-                    print(
-                        "Failed to process trade:",
-                        exc,
-                    )
-
+                    print("Failed to process trade:", exc)
                 continue
-
-            # -------------------------------------------------
-            # Bid/Ask message
-            # -------------------------------------------------
 
             if "bidask" in data:
-
-                print(
-                    "Bid/Ask update:",
-                    data["bidask"],
-                )
-
+                try:
+                    update_bidask(db, data["bidask"])
+                except Exception as exc:
+                    db.rollback()
+                    print("Failed to process Bid/Ask update:", exc)
                 continue
 
-            # -------------------------------------------------
-            # Other TrueData messages
-            # -------------------------------------------------
-
             print("TrueData message:")
-
             try:
-                print(
-                    json.dumps(
-                        data,
-                        indent=2,
-                    )
-                )
-
+                print(json.dumps(data, indent=2))
             except Exception:
                 print(data)
 
     except KeyboardInterrupt:
-
-        print(
-            "\nStopping collector..."
-        )
+        print("\nStopping collector...")
 
     except Exception as exc:
-
-        print(
-            f"\nCollector error: {exc}"
-        )
+        print(f"\nCollector error: {exc}")
 
     finally:
-
         if ws is not None:
-
-            try:
-                ws.send(
-                    json.dumps(
-                        {
-                            "method": "logout",
-                        }
-                    )
-                )
-
-            except Exception:
-                pass
-
             try:
                 ws.close()
-
             except Exception:
                 pass
-
-        if db is not None:
-            db.close()
-
-        print(
-            "Collector stopped."
-        )
-
-
-if __name__ == "__main__":
-    run_collector()
+        db.close()
+        print("Collector stopped.")
