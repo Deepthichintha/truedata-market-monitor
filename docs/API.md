@@ -1,6 +1,6 @@
 # TrueData Market Monitor - API Reference
 
-## Base URLs
+## 1. Base URLs
 
 Local backend:
 
@@ -26,7 +26,20 @@ OpenAPI:
 http://127.0.0.1:8000/openapi.json
 ```
 
-## 1. GET /health
+## 2. Endpoint Summary
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Application health |
+| GET | `/api/symbols` | Configured active symbols |
+| GET | `/api/market/status` | Market session and feed status |
+| GET | `/api/market/live` | Latest live data for active symbols |
+| GET | `/api/market/{symbol}` | Latest data for one symbol |
+| GET | `/api/market/{symbol}/history` | Historical EOD data |
+
+The API currently supports both `NSE` and `BSE` symbols through the common market-data endpoints.
+
+## 3. GET /health
 
 Checks application health.
 
@@ -34,61 +47,86 @@ Checks application health.
 curl http://127.0.0.1:8000/health
 ```
 
-Typical response:
+## 4. GET /api/symbols
 
-```json
-{
-  "status": "healthy",
-  "service": "TrueData Market Monitor",
-  "environment": "development"
-}
-```
-
-## 2. GET /api/symbols
-
-Returns configured market symbols.
+Returns configured active symbols.
 
 ```bash
 curl http://127.0.0.1:8000/api/symbols
 ```
 
-The configured project uses the validated NSE symbol set.
+The current validated configuration contains:
 
-## 3. GET /api/market/status
+```text
+NSE: 50 symbols
+BSE: 10 symbols
+Total: 60 active symbols
+```
 
-Returns market/feed state.
+## 5. GET /api/market/status
+
+Returns the current Indian-market session and live-feed state.
 
 ```bash
 curl http://127.0.0.1:8000/api/market/status
 ```
 
-Possible statuses:
-
-- `LIVE`
-- `STALE`
-- `CLOSED`
-
-Configured NSE market window:
+Timezone:
 
 ```text
-09:15 - 15:30
+Asia/Kolkata
 ```
 
-Configured stale threshold:
+Session schedule:
+
+```text
+08:45 - PRE_MARKET
+09:15 - OPEN
+15:30 - CLOSED
+```
+
+During the regular `OPEN` session, feed status is classified as:
+
+- `LIVE` - recent tick received within the stale threshold
+- `STALE` - latest tick is older than the stale threshold
+
+Outside regular hours the session is reported separately as `PRE_MARKET` or `CLOSED`.
+
+Current stale threshold:
 
 ```text
 60 seconds
 ```
 
-## 4. GET /api/market/live
+Typical fields include:
 
-Returns the latest stored tick for active mapped symbols.
+```text
+status
+market_open
+market_session
+market
+pre_market_start_time
+market_open_time
+market_close_time
+latest_tick
+age_seconds
+stale_threshold_seconds
+active_symbols
+server_time
+timezone
+```
+
+## 6. GET /api/market/live
+
+Returns the latest stored tick for each active symbol with a valid TrueData mapping.
 
 ```bash
 curl http://127.0.0.1:8000/api/market/live
 ```
 
-Typical market fields include:
+The response contains both NSE and BSE records when their latest live data is available.
+
+Typical fields:
 
 ```text
 symbol
@@ -112,26 +150,49 @@ ask
 ask_qty
 ```
 
-## 5. GET /api/market/{symbol}
+Example BSE response fragment:
 
-Returns the latest tick for one symbol.
-
-Example:
-
-```bash
-curl http://127.0.0.1:8000/api/market/RELIANCE
+```json
+{
+  "symbol": "AETHER_BSE",
+  "exchange": "BSE",
+  "truedata_symbol_id": "410004487",
+  "ltp": 1623.35,
+  "bid": 1623.85,
+  "bid_qty": 16,
+  "ask": 1626.6,
+  "ask_qty": 7
+}
 ```
 
-Possible `404` conditions include unknown symbols, missing TrueData mappings, or absence of stored market data.
+## 7. GET /api/market/{symbol}
 
-## 6. GET /api/market/{symbol}/history
+Returns the latest stored market tick for one active symbol.
 
-Returns historical EOD bars.
-
-Example:
+Examples:
 
 ```bash
-curl "http://127.0.0.1:8000/api/market/RELIANCE/history?limit=200"
+curl http://127.0.0.1:8000/api/market/AARTIIND
+```
+
+BSE:
+
+```bash
+curl http://127.0.0.1:8000/api/market/AETHER_BSE
+```
+
+Possible `404` conditions include:
+
+- Symbol not found
+- TrueData mapping missing
+- No market data has been stored yet
+
+## 8. GET /api/market/{symbol}/history
+
+Returns historical EOD bars for the requested symbol.
+
+```bash
+curl "http://127.0.0.1:8000/api/market/AARTIIND/history?limit=200"
 ```
 
 Parameter:
@@ -140,11 +201,15 @@ Parameter:
 |---|---:|---|
 | `limit` | 1-500 | Maximum number of historical rows |
 
-Current timeframe is `1D`.
+Current timeframe:
 
-## Error Handling
+```text
+1D
+```
 
-Common responses:
+Historical BSE availability depends on whether BSE historical bars have been loaded into `historical_bars`; successful live BSE ingestion does not by itself create historical EOD records.
+
+## 9. Response and Error Handling
 
 | Code | Meaning |
 |---:|---|
@@ -152,4 +217,4 @@ Common responses:
 | 404 | Symbol, mapping, or data not found |
 | 500 | Internal application/database error |
 
-The authoritative API contract is always the generated FastAPI OpenAPI specification available at `/docs` and `/openapi.json`.
+The generated FastAPI OpenAPI specification is the authoritative API contract.
