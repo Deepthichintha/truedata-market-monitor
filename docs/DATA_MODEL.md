@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-PostgreSQL stores the application's configured symbols, real-time ticks, and historical EOD bars.
+PostgreSQL stores configured exchange symbols, real-time market ticks, and historical EOD bars.
 
 Primary tables:
 
@@ -11,6 +11,8 @@ symbols
 live_ticks
 historical_bars
 ```
+
+The current validated configuration contains 50 NSE symbols and 10 BSE symbols.
 
 ## 2. Relationship
 
@@ -22,26 +24,77 @@ symbols
    +----> historical_bars
 ```
 
-The TrueData symbol identifier is used to connect incoming market data to the configured symbol records.
+Incoming TrueData records are associated with the configured `truedata_symbol_id`.
 
 ## 3. symbols
 
-Purpose: stores configured market symbols.
+Purpose: stores configured market symbols and their exchange mapping.
 
 Important fields:
 
 | Field | Purpose |
 |---|---|
 | `id` | Internal primary key |
-| `symbol` | Human-readable market symbol |
+| `symbol` | Human-readable application symbol |
 | `truedata_symbol_id` | TrueData identifier |
-| `exchange` | Exchange, currently NSE |
-| `is_active` | Whether symbol is active |
+| `exchange` | `NSE` or `BSE` |
+| `is_active` | Whether the symbol participates in ingestion/API output |
 | `created_at` | Creation timestamp |
 
-## 4. live_ticks
+Current configuration:
 
-Purpose: stores normalized real-time trade information.
+```text
+NSE: 50
+BSE: 10
+Active total: 60
+```
+
+## 4. NSE Symbol Configuration
+
+NSE symbols are configured in:
+
+```text
+app/config/symbols.py
+```
+
+They are seeded with:
+
+```text
+exchange = NSE
+```
+
+## 5. BSE Symbol Configuration
+
+The validated BSE test set is configured in:
+
+```text
+app/config/bse_symbols.py
+```
+
+The current BSE mapping is:
+
+| Symbol | TrueData ID |
+|---|---:|
+| AARTIIND_BSE | 410001512 |
+| ADANIPORTS_BSE | 410002671 |
+| AETHER_BSE | 410004487 |
+| APOLLOHOSP_BSE | 410000697 |
+| ASHIANA_BSE | 410001474 |
+| ATUL_BSE | 410000078 |
+| AUBANK_BSE | 410003594 |
+| BAJAJ-AUTO_BSE | 410002707 |
+| CARERATING_BSE | 410002923 |
+| CCL_BSE | 410001265 |
+
+BSE records are seeded with:
+
+```text
+exchange = BSE
+```
+
+## 6. live_ticks
+
+Purpose: stores normalized real-time market information.
 
 Important fields:
 
@@ -66,9 +119,22 @@ ask
 ask_qty
 ```
 
-A new parsed trade can result in a new `live_ticks` record.
+`symbol_id` stores the TrueData symbol identifier used by the collector for incoming records.
 
-## 5. historical_bars
+A parsed trade creates a live tick. Subsequent Bid/Ask updates can update the latest live tick for that TrueData symbol.
+
+## 7. Bid/Ask Data
+
+The collector handles:
+
+- TrueData regular `bidask` messages
+- BSE `bidaskL2` messages
+
+For BSE L2 data, the collector extracts the best available bid and ask levels and persists the corresponding price and quantity on the latest `live_ticks` record.
+
+If a quote arrives before the first trade tick for a symbol, no live tick exists to update. The collector logs the condition and continues processing subsequent feed messages.
+
+## 8. historical_bars
 
 Purpose: stores historical end-of-day market bars.
 
@@ -88,15 +154,19 @@ oi
 created_at
 ```
 
-The current API uses the `1D` timeframe.
+Current API timeframe:
 
-## 6. Indexing
+```text
+1D
+```
 
-The database model includes indexes/constraints around symbol identifiers and timestamps to support common market queries.
+## 9. Indexing and Constraints
 
-Production performance should be verified using actual query plans and workload data.
+The database model includes indexes/constraints around symbol identifiers and timestamps to support common latest-tick and historical queries.
 
-## 7. Data Retention
+Production performance should be verified using actual query plans and market-data workload.
+
+## 10. Data Retention
 
 `live_ticks` can grow rapidly during market hours. Production should define:
 
@@ -106,20 +176,20 @@ Production performance should be verified using actual query plans and workload 
 - Backup policy
 - Storage monitoring
 
-## 8. Data Flow
+## 11. Data Flow
 
 ```text
-TrueData trade
-      |
-      v
-Parser
-      |
-      v
+TrueData trade / quote
+        |
+        v
+Collector / Parser
+        |
+        v
 live_ticks
-      |
-      v
+        |
+        v
 FastAPI live endpoint
-      |
-      v
-Dashboard
+        |
+        v
+React dashboard
 ```
