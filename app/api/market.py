@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import desc
@@ -13,7 +14,12 @@ router = APIRouter(
 )
 
 
-# NSE equity market hours: Monday-Friday, 09:15-15:30 IST
+# NSE equity market session:
+# 08:45-09:15 -> PRE_MARKET
+# 09:15-15:30 -> OPEN
+# Outside     -> CLOSED
+IST = ZoneInfo("Asia/Kolkata")
+PRE_MARKET_START = time(8, 45)
 MARKET_OPEN = time(9, 15)
 MARKET_CLOSE = time(15, 30)
 
@@ -21,16 +27,38 @@ MARKET_CLOSE = time(15, 30)
 STALE_THRESHOLD_SECONDS = 60
 
 
-def is_market_open() -> bool:
-    now = datetime.now()
+def get_india_time() -> datetime:
+    """Return the current time in Asia/Kolkata."""
+    return datetime.now(IST)
 
-    # Monday = 0, Sunday = 6
+
+def get_market_session() -> str:
+    """
+    Return the current NSE market session.
+
+    PRE_MARKET: 08:45-09:15
+    OPEN:       09:15-15:30
+    CLOSED:     Outside those hours or weekends
+    """
+    now = get_india_time()
+
     if now.weekday() >= 5:
-        return False
+        return "CLOSED"
 
     current_time = now.time()
 
-    return MARKET_OPEN <= current_time <= MARKET_CLOSE
+    if PRE_MARKET_START <= current_time < MARKET_OPEN:
+        return "PRE_MARKET"
+
+    if MARKET_OPEN <= current_time <= MARKET_CLOSE:
+        return "OPEN"
+
+    return "CLOSED"
+
+
+def is_market_open() -> bool:
+    """Return True only during regular NSE market hours."""
+    return get_market_session() == "OPEN"
 
 
 def tick_to_dict(
@@ -63,13 +91,13 @@ def tick_to_dict(
 @router.get("/status")
 def get_market_status():
     """
-    Return the real market/feed status.
+    Return the current NSE market/feed status.
 
-    OPEN + recent tick  -> LIVE
-    OPEN + old tick     -> STALE
-    Outside NSE hours   -> CLOSED
+    PRE_MARKET -> pre-market session
+    OPEN + recent tick -> LIVE
+    OPEN + old tick -> STALE
+    CLOSED -> market closed
     """
-
     db = SessionLocal()
 
     try:
@@ -82,21 +110,24 @@ def get_market_status():
             .first()
         )
 
-        now = datetime.now()
+        now = get_india_time()
 
         latest_timestamp = None
         age_seconds = None
 
         if latest_tick:
             latest_timestamp = latest_tick.timestamp
+            now_naive = now.replace(tzinfo=None)
             age_seconds = max(
                 0,
-                (now - latest_tick.timestamp).total_seconds(),
+                (now_naive - latest_tick.timestamp).total_seconds(),
             )
 
-        market_open = is_market_open()
+        market_session = get_market_session()
 
-        if not market_open:
+        if market_session == "PRE_MARKET":
+            status = "PRE_MARKET"
+        elif market_session == "CLOSED":
             status = "CLOSED"
         elif not latest_tick:
             status = "STALE"
@@ -116,8 +147,10 @@ def get_market_status():
 
         return {
             "status": status,
-            "market_open": market_open,
+            "market_open": market_session == "OPEN",
+            "market_session": market_session,
             "market": "NSE",
+            "pre_market_start_time": "08:45",
             "market_open_time": "09:15",
             "market_close_time": "15:30",
             "latest_tick": latest_timestamp,
@@ -125,6 +158,7 @@ def get_market_status():
             "stale_threshold_seconds": STALE_THRESHOLD_SECONDS,
             "active_symbols": symbol_count,
             "server_time": now,
+            "timezone": "Asia/Kolkata",
         }
 
     finally:
@@ -251,7 +285,6 @@ def get_market_history(
 
     The newest completed trading day is returned first.
     """
-
     db = SessionLocal()
 
     try:
@@ -282,8 +315,7 @@ def get_market_history(
         bars = (
             db.query(HistoricalBar)
             .filter(
-                HistoricalBar.symbol_id
-                == db_symbol.truedata_symbol_id,
+                HistoricalBar.symbol_id == db_symbol.truedata_symbol_id,
                 HistoricalBar.timeframe == "1D",
             )
             .order_by(
