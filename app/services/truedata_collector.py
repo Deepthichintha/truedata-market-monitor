@@ -14,46 +14,25 @@ load_dotenv()
 
 TRUEDATA_WS_URL = "wss://push.truedata.in:8086"
 
-MAX_SYMBOLS = 50
+MAX_NSE_SYMBOLS = 50
+MAX_BSE_SYMBOLS = 10
 
 
-def get_active_symbols(
-    db: Session,
-    include_bse: bool = False,
-) -> list[str]:
+def get_active_symbols(db: Session) -> list[str]:
     """
-    Load symbols for the TrueData subscription.
+    Load NSE and BSE symbols for one TrueData subscription.
 
-    Normal mode:
-        Existing NSE symbols only.
+    NSE:
+        Up to 50 active symbols.
 
-    BSE test mode:
-        Configured BSE symbols only.
+    BSE:
+        Configured BSE symbols, up to 10.
 
-    This keeps the existing NSE subscription unchanged.
+    Both exchanges are returned together so the collector
+    uses one WebSocket connection for NSE + BSE.
     """
 
-    if include_bse:
-        rows = (
-            db.query(Symbol)
-            .filter(
-                Symbol.is_active.is_(True),
-                Symbol.exchange == "BSE",
-                Symbol.truedata_symbol_id.isnot(None),
-            )
-            .order_by(Symbol.id)
-            .all()
-        )
-
-        bse_symbols = [
-            row.symbol
-            for row in rows
-            if row.symbol in BSE_SYMBOLS
-        ]
-
-        return bse_symbols[:10]
-
-    rows = (
+    nse_rows = (
         db.query(Symbol)
         .filter(
             Symbol.is_active.is_(True),
@@ -66,10 +45,27 @@ def get_active_symbols(
 
     nse_symbols = [
         row.symbol
-        for row in rows
-    ]
+        for row in nse_rows
+    ][:MAX_NSE_SYMBOLS]
 
-    return nse_symbols[:MAX_SYMBOLS]
+    bse_rows = (
+        db.query(Symbol)
+        .filter(
+            Symbol.is_active.is_(True),
+            Symbol.exchange == "BSE",
+            Symbol.truedata_symbol_id.isnot(None),
+        )
+        .order_by(Symbol.id)
+        .all()
+    )
+
+    bse_symbols = [
+        row.symbol
+        for row in bse_rows
+        if row.symbol in BSE_SYMBOLS
+    ][:MAX_BSE_SYMBOLS]
+
+    return nse_symbols + bse_symbols
 
 
 def save_tick(
@@ -384,17 +380,14 @@ def run_collector() -> None:
     """
     Start the TrueData WebSocket collector.
 
-    Default:
+    One collector subscribes to both exchanges:
 
         50 NSE symbols
-
-    BSE test mode:
-
         10 BSE symbols
 
-    Enable BSE test mode:
+    Total target subscription:
 
-        export TRUEDATA_BSE_TEST=true
+        60 symbols
     """
 
     username = os.getenv(
@@ -412,34 +405,33 @@ def run_collector() -> None:
             "configured in .env"
         )
 
-    include_bse = (
-        os.getenv(
-            "TRUEDATA_BSE_TEST",
-            "false",
-        ).lower()
-        == "true"
-    )
-
     db = SessionLocal()
     ws = None
 
     try:
-        symbols = get_active_symbols(
-            db,
-            include_bse=include_bse,
-        )
+        symbols = get_active_symbols(db)
 
         if not symbols:
-            if include_bse:
-                raise RuntimeError(
-                    "No active BSE symbols found "
-                    "for BSE test mode."
-                )
-
             raise RuntimeError(
-                "No active NSE symbols found "
+                "No active NSE or BSE symbols found "
                 "in database."
             )
+
+        nse_count = len(
+            [
+                symbol
+                for symbol in symbols
+                if symbol not in BSE_SYMBOLS
+            ]
+        )
+
+        bse_count = len(
+            [
+                symbol
+                for symbol in symbols
+                if symbol in BSE_SYMBOLS
+            ]
+        )
 
         print("=" * 70)
         print(
@@ -449,20 +441,18 @@ def run_collector() -> None:
         print(
             f"WebSocket: {TRUEDATA_WS_URL}"
         )
-
-        if include_bse:
-            print(
-                "Mode: BSE TEST"
-            )
-        else:
-            print(
-                "Mode: NSE NORMAL"
-            )
-
         print(
-            f"Symbols loaded: {len(symbols)}"
+            "Mode: NSE + BSE"
         )
-
+        print(
+            f"NSE symbols: {nse_count}"
+        )
+        print(
+            f"BSE symbols: {bse_count}"
+        )
+        print(
+            f"Total symbols: {len(symbols)}"
+        )
         print("=" * 70)
 
         print("Symbols:")
