@@ -215,7 +215,7 @@ function App() {
 
     const interval = setInterval(() => {
       refreshDashboard();
-    }, 5000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, []);
@@ -357,7 +357,7 @@ function App() {
             </span>
 
             <strong>
-              5 sec
+              1 sec
             </strong>
 
             <small>
@@ -717,7 +717,6 @@ function App() {
                           </td>
 
                         </tr>
-
                       )
                     )}
 
