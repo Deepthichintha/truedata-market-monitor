@@ -1,0 +1,55 @@
+.provider-page {
+  min-height: 100vh;
+  background: #f5f7fb;
+  color: #172033;
+}
+
+.provider-header {
+  padding: 28px 6%;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e8f0;
+}
+
+.provider-header h1 { margin: 0 0 6px; }
+.provider-header p { margin: 0; color: #667085; }
+
+.provider-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 70px 24px;
+}
+
+.provider-hero { text-align: center; margin-bottom: 40px; }
+.provider-hero h2 { margin-bottom: 10px; font-size: 34px; }
+.provider-hero p { max-width: 760px; margin: auto; color: #667085; line-height: 1.7; }
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.provider-card {
+  display: block;
+  padding: 34px;
+  border: 1px solid #dfe4ec;
+  border-radius: 18px;
+  background: #ffffff;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: 0 12px 30px rgba(20, 32, 55, 0.07);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.provider-card:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(20, 32, 55, 0.12); }
+.provider-card.kite { border-color: #cfd8ff; }
+.provider-tag { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: #667085; }
+.provider-card h3 { font-size: 28px; margin: 12px 0; }
+.provider-card p { color: #667085; line-height: 1.6; min-height: 52px; }
+.provider-action { display: inline-block; margin-top: 18px; font-weight: 700; }
+.provider-note { text-align: center; margin-top: 28px; color: #98a2b3; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .provider-grid { grid-template-columns: 1fr; }
+  .provider-main { padding-top: 40px; }
+}
