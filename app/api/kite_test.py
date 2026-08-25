@@ -6,16 +6,30 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import desc
 
-from app.database.connection import SessionLocal
+from app.database.connection import Base, SessionLocal, engine
 from app.kite.auth import auth_status, exchange_request_token, login_url
 from app.kite.collector import collector
 from app.kite.config import KITE_ACCESS_TOKEN, KITE_FRONTEND_URL
 from app.kite.historical import SUPPORTED_INTERVALS, fetch_historical
 from app.kite.historical_models import KiteTestHistoricalBar
 from app.kite.instruments import download_instruments, map_test_universe, validate_test_universe
-from app.kite.models import KiteTestTick
+from app.kite.models import KiteTestSymbol, KiteTestTick
 
 router = APIRouter(prefix="/api/kite-test", tags=["Kite Provider Evaluation"])
+
+
+# Keep Kite evaluation storage isolated from the existing TrueData tables.
+# We create only the tables owned by the Kite evaluation models and never run
+# Base.metadata.create_all() for the whole application schema here.
+def ensure_kite_tables() -> None:
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            KiteTestSymbol.__table__,
+            KiteTestTick.__table__,
+            KiteTestHistoricalBar.__table__,
+        ],
+    )
 
 
 @router.get("/login")
@@ -85,6 +99,7 @@ def kite_auth_status():
 @router.post("/mapping")
 def kite_mapping():
     try:
+        ensure_kite_tables()
         path = download_instruments()
         rows = map_test_universe(path)
         validation = validate_test_universe(rows)
@@ -101,6 +116,7 @@ def kite_status():
 @router.post("/start")
 def kite_start():
     try:
+        ensure_kite_tables()
         return {"status": "started", "collector": collector.start()}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -114,6 +130,7 @@ def kite_stop():
 
 @router.get("/live")
 def kite_live():
+    ensure_kite_tables()
     db = SessionLocal()
     try:
         rows = db.query(KiteTestTick).order_by(desc(KiteTestTick.timestamp), desc(KiteTestTick.id)).all()
@@ -164,6 +181,7 @@ def kite_historical_read(
     exchange: str | None = Query(None),
     symbol: str | None = Query(None),
 ):
+    ensure_kite_tables()
     db = SessionLocal()
     try:
         query = db.query(KiteTestHistoricalBar)
