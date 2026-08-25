@@ -121,7 +121,7 @@ export default function KiteTestPage() {
         <section className="kite-controls">
           <div>
             <h2>Kite Test Controls</h2>
-            <p>Same 10-stock NSE + 10-stock BSE evaluation universe used for the provider comparison.</p>
+            <p>Same 50-stock NSE + 10-stock BSE evaluation universe used for the provider comparison.</p>
           </div>
           <div className="kite-actions">
             {!auth?.authenticated && <a href={`${API_BASE_URL}/api/kite-test/login`}>Login with Kite</a>}
