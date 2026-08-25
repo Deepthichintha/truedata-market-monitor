@@ -11,7 +11,7 @@ from sqlalchemy import desc
 from app.database.connection import SessionLocal
 from app.kite.auth import auth_status, exchange_request_token, login_url
 from app.kite.collector import collector
-from app.kite.config import KITE_ACCESS_TOKEN
+from app.kite.config import KITE_ACCESS_TOKEN, KITE_FRONTEND_URL
 from app.kite.instruments import download_instruments, map_test_universe, validate_test_universe
 from app.kite.models import KiteTestTick
 
@@ -34,12 +34,7 @@ def kite_callback(request_token: str):
         raise HTTPException(status_code=502, detail=f"Kite authentication failed: {exc}")
 
     # Keep the token server-side; never return it to the browser.
-    return {
-        "status": "ok",
-        "message": "Kite authentication successful. You can now start the Kite test collector.",
-        "user_id": session.user_id,
-        "authenticated": True,
-    }
+    return RedirectResponse(KITE_FRONTEND_URL)
 
 
 @router.get("/auth/status")
@@ -89,7 +84,6 @@ def kite_stop():
 def kite_live():
     db = SessionLocal()
     try:
-        # One latest row per exchange/symbol from the independent Kite table.
         rows = (
             db.query(KiteTestTick)
             .order_by(desc(KiteTestTick.timestamp), desc(KiteTestTick.id))
