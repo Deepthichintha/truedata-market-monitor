@@ -12,8 +12,8 @@ from sqlalchemy import delete
 from app.database.connection import Base, SessionLocal, engine
 from app.kite.auth import get_access_token
 from app.kite.config import KITE_ACCESS_TOKEN, KITE_API_KEY
+from app.kite.historical_models import KiteTestHistoricalBar
 from app.kite.instruments import download_instruments, map_test_universe, validate_test_universe
-from app.kite.models import KiteTestHistoricalBar
 
 
 SUPPORTED_INTERVALS = {
@@ -60,10 +60,7 @@ def fetch_historical(
             "Kite test universe is incomplete: " + ", ".join(validation["missing"])
         )
 
-    Base.metadata.create_all(
-        bind=engine,
-        tables=[KiteTestHistoricalBar.__table__],
-    )
+    Base.metadata.create_all(bind=engine, tables=[KiteTestHistoricalBar.__table__])
 
     kite = _client()
     db = SessionLocal()
