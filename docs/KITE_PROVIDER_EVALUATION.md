@@ -35,9 +35,9 @@ Kite     -> /?provider=kite
 
 The TrueData button opens the existing application. The Kite button opens the independent evaluation page.
 
-## Kite authentication
+## Kite authentication — important
 
-Set these local environment variables:
+Set these local environment variables in the **backend** `.env`:
 
 ```text
 KITE_API_KEY=...
@@ -49,7 +49,37 @@ KITE_FRONTEND_URL=http://127.0.0.1:5173/?provider=kite&auth=success
 
 Do not commit the API secret or access token.
 
-The Kite login flow is:
+### The redirect URL has two required locations
+
+The value in `.env` is only the URL this application expects. It **does not override Kite's developer-console configuration**.
+
+For the local test, the Kite API application used by the lead must have this exact Redirect URL registered in the Kite developer console:
+
+```text
+http://127.0.0.1:8000/api/kite-test/callback
+```
+
+These must match exactly:
+
+```text
+Kite developer console Redirect URL
+            =
+KITE_REDIRECT_URL in backend .env
+            =
+http://127.0.0.1:8000/api/kite-test/callback
+```
+
+If the Kite application is still registered with:
+
+```text
+https://tier1app2026-production.up.railway.app/api/kite/callback
+```
+
+Kite will continue redirecting there after login, regardless of the local `.env` value. The local FastAPI application cannot override a redirect URL registered against the Kite API key.
+
+For a deployed test, the registered URL must instead be the deployed backend callback URL, and the backend deployment must contain the `/api/kite-test/callback` route.
+
+### Official login flow
 
 ```text
 Kite Test Page
@@ -61,19 +91,43 @@ GET /api/kite-test/login
 Kite login page
       |
       v
-registered callback + request_token
+Kite developer-console registered Redirect URL
+      |
+      v
+request_token
       |
       v
 server-side request-token exchange
       |
       v
-server-side access token
+access_token
       |
       v
 Kite Test Page
 ```
 
+Kite also supports an optional `redirect_params` value on its login URL. This repository uses `provider=kite` only as informational context; it does not change the developer-console registered Redirect URL.
+
 Kite access tokens are session/day credentials. A fresh manual login should be performed as required by Kite's authentication rules rather than attempting to automate the login itself.
+
+## Authentication diagnostics
+
+After restarting FastAPI, check:
+
+```bash
+curl http://127.0.0.1:8000/api/kite-test/auth/status
+curl http://127.0.0.1:8000/api/kite-test/auth/config
+```
+
+`/auth/config` returns only non-secret setup diagnostics, including the callback URL the running backend expects. It never returns the API secret or access token.
+
+A direct callback test without a token should return HTTP 400 with a clear message. That is expected:
+
+```bash
+curl -i http://127.0.0.1:8000/api/kite-test/callback
+```
+
+Do not manually call the callback during a real login. Kite must supply the one-time `request_token`.
 
 ## Instrument mapping
 
@@ -92,7 +146,7 @@ NSE:<symbol> -> Kite instrument_token
 BSE:<symbol> -> Kite instrument_token
 ```
 
-The Kite instrument dump is downloaded to `data/kite_instruments.csv` and is not read from the TrueData mapping.
+The Kite instrument dump is downloaded to `data/kite_instruments.csv` and is not read from the TrueData live feed.
 
 The mapping endpoint creates only the Kite evaluation tables, validates the complete universe, and persists the mapped rows to `kite_test_symbols`.
 
@@ -128,14 +182,15 @@ Choose **Kite**.
 
 Then:
 
-1. Click **Login with Kite**.
-2. Complete the manual Kite login.
-3. Return to the Kite test page.
-4. Click **Refresh Kite Mapping**.
-5. Confirm `60/60` instruments are mapped: `50 NSE + 10 BSE`.
-6. Click **Start Kite Collector**.
-7. Wait for live NSE and BSE ticks during market hours.
-8. Verify the table and database records.
+1. Confirm the Kite developer-console Redirect URL matches the backend `.env`.
+2. Click **Login with Kite**.
+3. Complete the manual Kite login.
+4. Confirm `/api/kite-test/auth/status` reports `authenticated: true`.
+5. Click **Refresh Kite Mapping**.
+6. Confirm `60/60` instruments are mapped: `50 NSE + 10 BSE`.
+7. Click **Start Kite Collector**.
+8. Wait for live NSE and BSE ticks during market hours.
+9. Verify the table and database records.
 
 ## Backend endpoints
 
@@ -143,6 +198,7 @@ Then:
 GET  /api/kite-test/login
 GET  /api/kite-test/callback?request_token=...
 GET  /api/kite-test/auth/status
+GET  /api/kite-test/auth/config
 POST /api/kite-test/mapping
 GET  /api/kite-test/status
 POST /api/kite-test/start
@@ -151,6 +207,14 @@ GET  /api/kite-test/live
 POST /api/kite-test/historical
 GET  /api/kite-test/historical
 ```
+
+A compatibility callback also exists for older Kite application registrations:
+
+```text
+GET /api/kite/callback?request_token=...
+```
+
+It performs the same server-side token exchange but should not be used as the primary local evaluation callback.
 
 ## Manual backend validation
 
@@ -164,6 +228,12 @@ Kite authentication status:
 
 ```bash
 curl http://127.0.0.1:8000/api/kite-test/auth/status
+```
+
+Expected before login:
+
+```json
+{"configured":true,"authenticated":false,"user_id":null}
 ```
 
 Kite mapping:
@@ -188,7 +258,7 @@ Kite collector status:
 curl http://127.0.0.1:8000/api/kite-test/status
 ```
 
-Start collection:
+Start collection only after authentication succeeds:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/kite-test/start
@@ -291,6 +361,7 @@ An independent reference should be used when the two providers disagree on a val
 ## Acceptance criteria
 
 - [ ] TrueData collector behavior unchanged.
+- [ ] Kite developer-console Redirect URL matches the running backend callback.
 - [ ] Kite login redirects correctly.
 - [ ] Kite request token is exchanged server-side.
 - [ ] Mapping reports 60/60 instruments.
@@ -309,9 +380,17 @@ An independent reference should be used when the two providers disagree on a val
 
 ## Troubleshooting
 
-### `relation "kite_test_ticks" does not exist`
+### Browser redirects to the old Railway `Not Found` page
 
-Pull the latest `feat/kite-provider-evaluation` branch changes and restart FastAPI. The Kite API now creates the Kite-owned tables automatically before mapping, starting, or reading live/historical data.
+This means the Kite API application's registered Redirect URL still points to the old Railway URL. Changing `KITE_REDIRECT_URL` in the local `.env` cannot override the developer-console setting.
+
+For local testing, change the Kite application Redirect URL to:
+
+```text
+http://127.0.0.1:8000/api/kite-test/callback
+```
+
+Restart FastAPI and start a fresh login flow. The one-time `request_token` should then arrive at the local callback.
 
 ### `/api/kite-test/callback` returns 400
 
@@ -321,9 +400,13 @@ The callback requires Kite's `request_token`. Do not call the callback URL manua
 
 Check `KITE_API_KEY` and `KITE_API_SECRET` in `.env`, then restart FastAPI.
 
+### Authentication says `configured=true` but `authenticated=false`
+
+The API key/secret are present, but there is no current access token. Complete the browser login. If the browser redirects to another host, fix the Kite developer-console Redirect URL first.
+
 ### Collector says `Kite is not authenticated`
 
-Complete the browser login flow or set a valid `KITE_ACCESS_TOKEN` for local evaluation.
+Complete the browser login and verify `/api/kite-test/auth/status` reports `authenticated: true` before starting the collector.
 
 ### Mapping is incomplete
 
@@ -331,6 +414,8 @@ Run the mapping endpoint again and inspect the returned `missing` list. The eval
 
 ## Official references
 
+- Kite Connect v3 user/login flow: https://kite.trade/docs/connect/v3/user/
 - Kite WebSocket streaming: https://kite.trade/docs/connect/v3/websocket/
 - Kite market data and instruments: https://kite.trade/docs/connect/v3/market-data-and-instruments/
+- Kite historical candle data: https://kite.trade/docs/connect/v3/historical/
 - Kite Python client: https://kite.trade/docs/pykiteconnect/v4/
