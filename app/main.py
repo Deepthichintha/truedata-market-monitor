@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
 from app.api.market import router as market_router
-from app.api.kite_test import router as kite_test_router
+from app.api.kite_test import router as kite_test_router, legacy_router as kite_legacy_router
 
 
 app = FastAPI(
@@ -70,3 +70,8 @@ app.include_router(market_router)
 # This router is intentionally separate from /api/market. Existing TrueData
 # routes and collector are not modified by the Kite evaluation path.
 app.include_router(kite_test_router)
+
+# Compatibility callback for the Kite app's currently registered production
+# /api/kite/callback URL. This only handles the Kite request_token exchange and
+# does not proxy market data or alter the existing TrueData implementation.
+app.include_router(kite_legacy_router)
