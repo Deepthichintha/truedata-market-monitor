@@ -1,24 +1,24 @@
-import "./App.css";
+import "./ProviderSelection.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function ProviderSelection() {
   return (
-    <div className="app">
-      <header className="topbar">
+    <div className="provider-page">
+      <header className="provider-header">
         <div>
           <h1>Market Data Provider Evaluation</h1>
           <p>Independent NSE + BSE live-data testing</p>
         </div>
       </header>
 
-      <main className="container provider-selection">
+      <main className="provider-main">
         <section className="provider-hero">
           <h2>Select a Market Data Provider</h2>
           <p>
-            The two providers are tested independently. TrueData remains on its
-            existing implementation; Kite uses its own authentication,
-            instrument mapping, WebSocket collector, storage, and API.
+            TrueData remains on its existing implementation. Kite uses its own
+            authentication, instrument mapping, WebSocket collector, storage,
+            and API. The providers do not exchange live data.
           </p>
         </section>
 
