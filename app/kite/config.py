@@ -5,6 +5,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app.config.symbols import SYMBOLS
+from app.config.bse_symbols import BSE_SYMBOLS
+
 load_dotenv()
 
 KITE_API_KEY = os.getenv("KITE_API_KEY", "")
@@ -28,20 +31,14 @@ KITE_TEST_RUNS_FILE = Path(
     os.getenv("KITE_TEST_RUNS_FILE", "data/kite_test_ticks.jsonl")
 )
 
-# Keep the first evaluation small and identical to the existing TrueData test
-# universe. The collector can be expanded after the provider comparison is
-# validated.
-KITE_TEST_SYMBOLS = [
-    "AARTIIND",
-    "ADANIPORTS",
-    "AETHER",
-    "APOLLOHOSP",
-    "ASHIANA",
-    "ATUL",
-    "AUBANK",
-    "BAJAJ-AUTO",
-    "CARERATING",
-    "CCL",
+# Use the existing TrueData evaluation universe as the source of truth.
+# NSE uses the full existing 50-symbol universe.
+KITE_TEST_SYMBOLS = list(SYMBOLS)
+
+# BSE uses the existing 10-symbol BSE universe. The dictionary keys contain
+# the provider-facing `_BSE` suffix, so strip it for Kite tradingsymbols.
+KITE_TEST_BSE_SYMBOLS = [
+    key.removesuffix("_BSE") for key in BSE_SYMBOLS
 ]
 
 KITE_TEST_EXCHANGES = ("NSE", "BSE")
