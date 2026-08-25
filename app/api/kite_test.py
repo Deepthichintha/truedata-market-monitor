@@ -27,12 +27,50 @@ def kite_login():
 
 
 @router.get("/callback")
-def kite_callback(request_token: str):
+def kite_callback(
+    request_token: str | None = Query(None),
+    status: str | None = Query(None),
+    action: str | None = Query(None),
+    type: str | None = Query(None),
+):
+    """Handle Kite's registered redirect callback.
+
+    Kite appends ``status=success``, ``action=login`` and the short-lived
+    ``request_token`` to the registered redirect URL.  The request token is
+    exchanged server-side and is never returned to the browser.
+    """
+    if status and status != "success":
+        raise HTTPException(status_code=401, detail=f"Kite login failed: {status}")
+    if not request_token:
+        raise HTTPException(status_code=400, detail="Kite request_token is missing")
+
     try:
         exchange_request_token(request_token)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Kite authentication failed: {exc}")
+
     return RedirectResponse(KITE_FRONTEND_URL)
+
+
+# Compatibility callback for Kite apps that still have the legacy
+# /api/kite/callback path registered. It uses the exact same server-side
+# token exchange and does not touch the existing TrueData routes.
+legacy_router = APIRouter(prefix="/api/kite", tags=["Kite Provider Evaluation"])
+
+
+@legacy_router.get("/callback")
+def kite_legacy_callback(
+    request_token: str | None = Query(None),
+    status: str | None = Query(None),
+    action: str | None = Query(None),
+    type: str | None = Query(None),
+):
+    return kite_callback(
+        request_token=request_token,
+        status=status,
+        action=action,
+        type=type,
+    )
 
 
 @router.get("/auth/status")
