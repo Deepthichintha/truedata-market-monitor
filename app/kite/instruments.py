@@ -2,7 +2,6 @@
 
 import csv
 import gzip
-import io
 from pathlib import Path
 
 import requests
@@ -11,6 +10,7 @@ from app.kite.config import (
     KITE_API_KEY,
     KITE_ACCESS_TOKEN,
     KITE_INSTRUMENTS_FILE,
+    KITE_TEST_BSE_SYMBOLS,
     KITE_TEST_EXCHANGES,
     KITE_TEST_SYMBOLS,
 )
@@ -45,12 +45,11 @@ def _read_rows(path: Path):
 
 
 def map_test_universe(path: Path = KITE_INSTRUMENTS_FILE) -> list[dict]:
-    """Map the exact evaluation symbols independently to Kite tokens.
-
-    Only NSE/BSE equity instruments are considered. The key is exchange plus
-    tradingsymbol, so NSE and BSE are intentionally kept as separate records.
-    """
-    wanted = set(KITE_TEST_SYMBOLS)
+    """Map the existing NSE/BSE evaluation universe independently to Kite tokens."""
+    wanted_by_exchange = {
+        "NSE": set(KITE_TEST_SYMBOLS),
+        "BSE": set(KITE_TEST_BSE_SYMBOLS),
+    }
     results: list[dict] = []
 
     for row in _read_rows(path):
@@ -61,9 +60,9 @@ def map_test_universe(path: Path = KITE_INSTRUMENTS_FILE) -> list[dict]:
 
         if exchange not in KITE_TEST_EXCHANGES:
             continue
-        if symbol not in wanted:
+        if symbol not in wanted_by_exchange[exchange]:
             continue
-        if instrument_type != "EQ" or segment not in {"NSE", "BSE"}:
+        if instrument_type != "EQ" or segment != exchange:
             continue
 
         results.append(
@@ -77,25 +76,39 @@ def map_test_universe(path: Path = KITE_INSTRUMENTS_FILE) -> list[dict]:
             }
         )
 
-    # Keep one deterministic row per exchange:symbol.
     unique = {(r["exchange"], r["symbol"]): r for r in results}
-    return [
-        unique[key]
-        for key in sorted(unique, key=lambda x: (x[0], x[1]))
-    ]
+    return [unique[key] for key in sorted(unique, key=lambda x: (x[0], x[1]))]
 
 
 def validate_test_universe(rows: list[dict]) -> dict:
+    expected_by_exchange = {
+        "NSE": len(KITE_TEST_SYMBOLS),
+        "BSE": len(KITE_TEST_BSE_SYMBOLS),
+    }
     found = {(r["exchange"], r["symbol"]) for r in rows}
-    missing = [
-        f"{exchange}:{symbol}"
+    missing = []
+
+    for exchange, symbols in (
+        ("NSE", KITE_TEST_SYMBOLS),
+        ("BSE", KITE_TEST_BSE_SYMBOLS),
+    ):
+        missing.extend(
+            f"{exchange}:{symbol}"
+            for symbol in symbols
+            if (exchange, symbol) not in found
+        )
+
+    found_by_exchange = {
+        exchange: sum(1 for row in rows if row["exchange"] == exchange)
         for exchange in KITE_TEST_EXCHANGES
-        for symbol in KITE_TEST_SYMBOLS
-        if (exchange, symbol) not in found
-    ]
+    }
+    expected = sum(expected_by_exchange.values())
+
     return {
-        "expected": len(KITE_TEST_SYMBOLS) * len(KITE_TEST_EXCHANGES),
+        "expected": expected,
+        "expected_by_exchange": expected_by_exchange,
         "found": len(rows),
+        "found_by_exchange": found_by_exchange,
         "missing": missing,
-        "complete": not missing,
+        "complete": not missing and len(rows) == expected,
     }
