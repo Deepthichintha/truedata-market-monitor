@@ -9,7 +9,7 @@ from sqlalchemy import desc
 from app.database.connection import Base, SessionLocal, engine
 from app.kite.auth import auth_status, exchange_request_token, login_url
 from app.kite.collector import collector
-from app.kite.config import KITE_ACCESS_TOKEN, KITE_FRONTEND_URL
+from app.kite.config import KITE_FRONTEND_URL, KITE_REDIRECT_URL
 from app.kite.historical import SUPPORTED_INTERVALS, fetch_historical
 from app.kite.historical_models import KiteTestHistoricalBar
 from app.kite.models import KiteTestSymbol, KiteTestTick
@@ -17,10 +17,8 @@ from app.kite.models import KiteTestSymbol, KiteTestTick
 router = APIRouter(prefix="/api/kite-test", tags=["Kite Provider Evaluation"])
 
 
-# Keep Kite evaluation storage isolated from the existing TrueData tables.
-# Only Kite-owned tables are created here; the existing TrueData schema is
-# never initialized or modified by this provider-evaluation API.
 def ensure_kite_tables() -> None:
+    """Create only Kite-owned evaluation tables; never initialize TrueData tables."""
     Base.metadata.create_all(
         bind=engine,
         tables=[
@@ -45,17 +43,31 @@ def kite_callback(
     status: str | None = Query(None),
     action: str | None = Query(None),
     type: str | None = Query(None),
+    provider: str | None = Query(None),
 ):
-    """Handle Kite's registered redirect callback.
+    """Exchange Kite's one-time request token and return to the Kite page.
 
-    Kite appends ``status=success``, ``action=login`` and the short-lived
-    ``request_token`` to the registered redirect URL. The request token is
-    exchanged server-side and is never returned to the browser.
+    The Kite developer console decides where the browser is redirected. The
+    URL configured in ``KITE_REDIRECT_URL`` must therefore match the redirect
+    URL registered for the API key. ``redirect_params`` such as ``provider=kite``
+    are informational and do not override that registered URL.
     """
     if status and status != "success":
-        raise HTTPException(status_code=401, detail=f"Kite login failed: {status}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Kite login failed: {status}. action={action or '-'} type={type or '-'}",
+        )
+
     if not request_token:
-        raise HTTPException(status_code=400, detail="Kite request_token is missing")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Kite request_token is missing. Start from /api/kite-test/login "
+                "and ensure the Kite developer-console Redirect URL is exactly "
+                f"{KITE_REDIRECT_URL}. The local .env value cannot override a "
+                "different URL registered against the Kite API key."
+            ),
+        )
 
     try:
         exchange_request_token(request_token)
@@ -65,9 +77,6 @@ def kite_callback(
     return RedirectResponse(KITE_FRONTEND_URL)
 
 
-# Compatibility callback for Kite apps that still have the legacy
-# /api/kite/callback path registered. It uses the exact same server-side
-# token exchange and does not touch the existing TrueData routes.
 legacy_router = APIRouter(prefix="/api/kite", tags=["Kite Provider Evaluation"])
 
 
@@ -77,22 +86,36 @@ def kite_legacy_callback(
     status: str | None = Query(None),
     action: str | None = Query(None),
     type: str | None = Query(None),
+    provider: str | None = Query(None),
 ):
+    """Compatibility callback for an older Kite application registration."""
     return kite_callback(
         request_token=request_token,
         status=status,
         action=action,
         type=type,
+        provider=provider,
     )
 
 
 @router.get("/auth/status")
 def kite_auth_status():
+    return auth_status()
+
+
+@router.get("/auth/config")
+def kite_auth_config():
+    """Non-secret configuration diagnostics for local/deployed setup."""
     status = auth_status()
-    if KITE_ACCESS_TOKEN and not status["authenticated"]:
-        status["authenticated"] = True
-        status["source"] = "KITE_ACCESS_TOKEN"
-    return status
+    return {
+        "configured": status["configured"],
+        "authenticated": status["authenticated"],
+        "user_id": status["user_id"],
+        "token_source": status.get("source"),
+        "registered_redirect_must_match": KITE_REDIRECT_URL,
+        "frontend_after_login": KITE_FRONTEND_URL,
+        "api_secret_present": status["configured"],
+    }
 
 
 @router.post("/mapping")
