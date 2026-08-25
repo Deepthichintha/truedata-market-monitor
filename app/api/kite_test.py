@@ -1,10 +1,8 @@
-"""HTTP API for the isolated Kite provider evaluation.
+"""HTTP API for the isolated Kite provider evaluation."""
 
-These routes are deliberately separate from /api/market and do not alter the
-existing TrueData endpoints.
-"""
+from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import desc
 
@@ -12,6 +10,8 @@ from app.database.connection import SessionLocal
 from app.kite.auth import auth_status, exchange_request_token, login_url
 from app.kite.collector import collector
 from app.kite.config import KITE_ACCESS_TOKEN, KITE_FRONTEND_URL
+from app.kite.historical import SUPPORTED_INTERVALS, fetch_historical
+from app.kite.historical_models import KiteTestHistoricalBar
 from app.kite.instruments import download_instruments, map_test_universe, validate_test_universe
 from app.kite.models import KiteTestTick
 
@@ -29,11 +29,9 @@ def kite_login():
 @router.get("/callback")
 def kite_callback(request_token: str):
     try:
-        session = exchange_request_token(request_token)
+        exchange_request_token(request_token)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Kite authentication failed: {exc}")
-
-    # Keep the token server-side; never return it to the browser.
     return RedirectResponse(KITE_FRONTEND_URL)
 
 
@@ -59,17 +57,13 @@ def kite_mapping():
 
 @router.get("/status")
 def kite_status():
-    return {
-        "auth": kite_auth_status(),
-        "collector": collector.status(),
-    }
+    return {"auth": kite_auth_status(), "collector": collector.status()}
 
 
 @router.post("/start")
 def kite_start():
     try:
-        result = collector.start()
-        return {"status": "started", "collector": result}
+        return {"status": "started", "collector": collector.start()}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -84,41 +78,81 @@ def kite_stop():
 def kite_live():
     db = SessionLocal()
     try:
-        rows = (
-            db.query(KiteTestTick)
-            .order_by(desc(KiteTestTick.timestamp), desc(KiteTestTick.id))
-            .all()
-        )
+        rows = db.query(KiteTestTick).order_by(desc(KiteTestTick.timestamp), desc(KiteTestTick.id)).all()
         latest: dict[tuple[str, str], KiteTestTick] = {}
         for row in rows:
             latest.setdefault((row.exchange, row.symbol), row)
-
         data = [
             {
-                "provider": "kite",
-                "symbol": row.symbol,
-                "exchange": row.exchange,
-                "instrument_token": row.instrument_token,
-                "timestamp": row.timestamp,
-                "received_at": row.received_at,
-                "ltp": row.ltp,
-                "ltq": row.ltq,
-                "atp": row.atp,
-                "total_volume": row.total_volume,
-                "open": row.open,
-                "high": row.high,
-                "low": row.low,
-                "prev_close": row.prev_close,
-                "oi": row.oi,
-                "bid": row.bid,
-                "bid_qty": row.bid_qty,
-                "ask": row.ask,
-                "ask_qty": row.ask_qty,
+                "provider": "kite", "symbol": row.symbol, "exchange": row.exchange,
+                "instrument_token": row.instrument_token, "timestamp": row.timestamp,
+                "received_at": row.received_at, "ltp": row.ltp, "ltq": row.ltq,
+                "atp": row.atp, "total_volume": row.total_volume, "open": row.open,
+                "high": row.high, "low": row.low, "prev_close": row.prev_close,
+                "oi": row.oi, "bid": row.bid, "bid_qty": row.bid_qty,
+                "ask": row.ask, "ask_qty": row.ask_qty,
                 "last_trade_time": row.last_trade_time,
                 "exchange_timestamp": row.exchange_timestamp,
             }
             for row in sorted(latest.values(), key=lambda x: (x.exchange, x.symbol))
         ]
         return {"count": len(data), "data": data}
+    finally:
+        db.close()
+
+
+@router.post("/historical")
+def kite_historical(
+    from_date: date = Query(..., description="Start date, YYYY-MM-DD"),
+    to_date: date = Query(..., description="End date, YYYY-MM-DD"),
+    interval: str = Query("day", description="Kite candle interval"),
+    include_oi: bool = Query(True),
+):
+    if interval not in SUPPORTED_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"Unsupported interval: {interval}")
+    try:
+        return fetch_historical(from_date, to_date, interval=interval, include_oi=include_oi)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Kite historical request failed: {exc}")
+
+
+@router.get("/historical")
+def kite_historical_read(
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
+    interval: str | None = Query(None),
+    exchange: str | None = Query(None),
+    symbol: str | None = Query(None),
+):
+    db = SessionLocal()
+    try:
+        query = db.query(KiteTestHistoricalBar)
+        if from_date:
+            query = query.filter(KiteTestHistoricalBar.candle_timestamp >= from_date)
+        if to_date:
+            query = query.filter(KiteTestHistoricalBar.candle_timestamp < to_date.fromordinal(to_date.toordinal() + 1))
+        if interval:
+            query = query.filter(KiteTestHistoricalBar.interval == interval)
+        if exchange:
+            query = query.filter(KiteTestHistoricalBar.exchange == exchange.upper())
+        if symbol:
+            query = query.filter(KiteTestHistoricalBar.symbol == symbol.upper())
+
+        rows = query.order_by(KiteTestHistoricalBar.candle_timestamp, KiteTestHistoricalBar.exchange, KiteTestHistoricalBar.symbol).all()
+        return {
+            "count": len(rows),
+            "data": [
+                {
+                    "provider": "kite", "symbol": row.symbol, "exchange": row.exchange,
+                    "instrument_token": row.instrument_token,
+                    "timestamp": row.candle_timestamp, "interval": row.interval,
+                    "open": row.open, "high": row.high, "low": row.low,
+                    "close": row.close, "volume": row.volume, "oi": row.oi,
+                }
+                for row in rows
+            ],
+        }
     finally:
         db.close()
