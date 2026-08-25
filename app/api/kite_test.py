@@ -12,15 +12,14 @@ from app.kite.collector import collector
 from app.kite.config import KITE_ACCESS_TOKEN, KITE_FRONTEND_URL
 from app.kite.historical import SUPPORTED_INTERVALS, fetch_historical
 from app.kite.historical_models import KiteTestHistoricalBar
-from app.kite.instruments import download_instruments, map_test_universe, validate_test_universe
 from app.kite.models import KiteTestSymbol, KiteTestTick
 
 router = APIRouter(prefix="/api/kite-test", tags=["Kite Provider Evaluation"])
 
 
 # Keep Kite evaluation storage isolated from the existing TrueData tables.
-# We create only the tables owned by the Kite evaluation models and never run
-# Base.metadata.create_all() for the whole application schema here.
+# Only Kite-owned tables are created here; the existing TrueData schema is
+# never initialized or modified by this provider-evaluation API.
 def ensure_kite_tables() -> None:
     Base.metadata.create_all(
         bind=engine,
@@ -50,7 +49,7 @@ def kite_callback(
     """Handle Kite's registered redirect callback.
 
     Kite appends ``status=success``, ``action=login`` and the short-lived
-    ``request_token`` to the registered redirect URL.  The request token is
+    ``request_token`` to the registered redirect URL. The request token is
     exchanged server-side and is never returned to the browser.
     """
     if status and status != "success":
@@ -98,12 +97,11 @@ def kite_auth_status():
 
 @router.post("/mapping")
 def kite_mapping():
+    """Download, validate, persist, and return the exact 60-symbol Kite universe."""
     try:
         ensure_kite_tables()
-        path = download_instruments()
-        rows = map_test_universe(path)
-        validation = validate_test_universe(rows)
-        return {"file": str(path), "validation": validation, "instruments": rows}
+        result = collector.prepare_mapping()
+        return result
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Kite instrument mapping failed: {exc}")
 
