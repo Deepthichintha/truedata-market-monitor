@@ -3,11 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
 from app.api.market import router as market_router
+from app.api.kite_test import router as kite_test_router
 
 
 app = FastAPI(
     title=settings.app_name,
-    description="Real-time stock monitoring POC using TrueData APIs",
+    description="Real-time stock monitoring POC with isolated TrueData and Kite provider evaluation",
     version="0.1.0",
 )
 
@@ -60,3 +61,12 @@ async def get_symbols():
 # ---------------------------------------------------------
 
 app.include_router(market_router)
+
+
+# ---------------------------------------------------------
+# Kite provider evaluation API
+# ---------------------------------------------------------
+
+# This router is intentionally separate from /api/market. Existing TrueData
+# routes and collector are not modified by the Kite evaluation path.
+app.include_router(kite_test_router)
