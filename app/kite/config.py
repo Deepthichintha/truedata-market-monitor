@@ -14,6 +14,10 @@ KITE_REDIRECT_URL = os.getenv(
     "KITE_REDIRECT_URL",
     "http://127.0.0.1:8000/api/kite-test/callback",
 )
+KITE_FRONTEND_URL = os.getenv(
+    "KITE_FRONTEND_URL",
+    "http://127.0.0.1:5173/?provider=kite&auth=success",
+)
 KITE_LOGIN_URL = "https://kite.zerodha.com/connect/login?v=3"
 KITE_WS_URL = "wss://ws.kite.trade"
 
